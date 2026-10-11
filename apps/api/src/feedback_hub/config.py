@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     github_api_version: str = "2026-03-10"
     github_token: SecretStr | None = None
     github_timeout_seconds: float = Field(default=10.0, gt=0)
+    github_import_limit: int = Field(default=100, ge=1, le=500)
 
     allowed_licenses: frozenset[str] = frozenset(
         {
