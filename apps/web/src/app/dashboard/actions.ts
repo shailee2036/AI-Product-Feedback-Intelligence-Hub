@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { registerGithubProduct } from "@/lib/api/client";
+import { cancelIssueImport, registerGithubProduct, startIssueImport } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { describeReason } from "@/lib/eligibility";
 import { parseRepositoryInput } from "@/lib/repository";
@@ -36,6 +36,41 @@ export async function registerRepository(
 
   revalidatePath("/dashboard");
   redirect("/dashboard");
+}
+
+export type ImportState = { error?: string };
+
+export async function startImport(): Promise<ImportState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  try {
+    await startIssueImport(token);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.status === 409) return { error: "An import is already running." };
+    if (error.status === 404) return { error: "Register a repository before importing issues." };
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function cancelImport(
+  _previous: ImportState,
+  formData: FormData,
+): Promise<ImportState> {
+  const importId = formData.get("importId");
+  if (typeof importId !== "string" || importId.length === 0) return { error: "Missing import." };
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  try {
+    await cancelIssueImport(token, importId);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
 }
 
 function describeRegistrationError(error: ApiError): RegisterState {
