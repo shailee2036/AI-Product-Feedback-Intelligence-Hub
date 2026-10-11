@@ -16,7 +16,7 @@ from feedback_hub.github.refs import InvalidRepositoryReferenceError, parse_repo
 router = APIRouter(prefix="/v1/repositories", tags=["repositories"])
 
 
-class EligibilityRequest(BaseModel):
+class RepositoryRequest(BaseModel):
     repository: str = Field(min_length=3, max_length=200, examples=["appwrite/appwrite"])
 
 
@@ -25,14 +25,12 @@ def get_github_client(request: Request) -> GitHubClient:
     return client
 
 
-@router.post("/eligibility", response_model=EligibilityResult)
-async def check_eligibility(
-    body: EligibilityRequest,
-    github: Annotated[GitHubClient, Depends(get_github_client)],
-    settings: Annotated[Settings, Depends(get_settings)],
+async def check_repository(
+    value: str, github: GitHubClient, settings: Settings
 ) -> EligibilityResult:
+    """Resolve a user-supplied repository and apply the eligibility gate, mapping GitHub errors."""
     try:
-        ref = parse_repository_reference(body.repository)
+        ref = parse_repository_reference(value)
     except InvalidRepositoryReferenceError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
@@ -51,3 +49,12 @@ async def check_eligibility(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     return evaluate_eligibility(payload, settings.allowed_licenses)
+
+
+@router.post("/eligibility", response_model=EligibilityResult)
+async def check_eligibility(
+    body: RepositoryRequest,
+    github: Annotated[GitHubClient, Depends(get_github_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> EligibilityResult:
+    return await check_repository(body.repository, github, settings)

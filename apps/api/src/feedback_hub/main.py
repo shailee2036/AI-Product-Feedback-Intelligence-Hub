@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
 from feedback_hub import __version__
-from feedback_hub.api import health, me, repositories
+from feedback_hub.api import health, me, product, repositories
 from feedback_hub.auth import SupabaseJwtVerifier
 from feedback_hub.config import Settings, get_settings
 from feedback_hub.db.engine import Database
@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(metrics_middleware)
     app.include_router(health.router)
     app.include_router(me.router)
+    app.include_router(product.router)
     app.include_router(repositories.router)
     app.mount("/metrics", make_asgi_app())
     return app
