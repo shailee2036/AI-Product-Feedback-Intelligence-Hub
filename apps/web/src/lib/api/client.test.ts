@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getMe, getProduct, registerGithubProduct } from "./client";
+import {
+  cancelIssueImport,
+  getCurrentImport,
+  getFeedback,
+  getMe,
+  getProduct,
+  registerGithubProduct,
+  startIssueImport,
+} from "./client";
 import { ApiError } from "./errors";
 
 const PRODUCT = {
@@ -96,6 +104,71 @@ describe("API client", () => {
     fetchMock.mockRejectedValue(new TypeError("fetch failed"));
 
     await expect(getMe("t")).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("starts an import and reads it back", async () => {
+    const job = {
+      id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+      status: "queued",
+      issue_limit: 100,
+      imported_count: 0,
+      skipped_count: 0,
+      not_modified: false,
+      error_message: null,
+      created_at: "2026-10-11T20:00:00Z",
+      started_at: null,
+      finished_at: null,
+    };
+    fetchMock.mockResolvedValue(respond(202, job));
+
+    await expect(startIssueImport("t")).resolves.toMatchObject({ status: "queued" });
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+
+    fetchMock.mockResolvedValue(respond(404, { detail: "No import has been started." }));
+    await expect(getCurrentImport("t")).resolves.toBeNull();
+  });
+
+  it("cancels an import and lists imported issues", async () => {
+    fetchMock.mockResolvedValueOnce(
+      respond(200, {
+        id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+        status: "cancelled",
+        issue_limit: 100,
+        imported_count: 0,
+        skipped_count: 0,
+        not_modified: false,
+        error_message: null,
+        created_at: "2026-10-11T20:00:00Z",
+        started_at: "2026-10-11T20:00:01Z",
+        finished_at: "2026-10-11T20:00:02Z",
+      }),
+    );
+    const cancelled = await cancelIssueImport("t", "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c");
+    expect(cancelled.status).toBe("cancelled");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/imports/5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c/cancel");
+
+    fetchMock.mockResolvedValueOnce(
+      respond(200, {
+        total: 1,
+        items: [
+          {
+            id: "8a4b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+            number: 42,
+            title: "Login fails",
+            state: "open",
+            html_url: "https://github.com/appwrite/appwrite/issues/42",
+            labels: ["bug"],
+            comment_count: 1,
+            reactions_total: 2,
+            excerpt: "Customers cannot complete login.",
+            updated_at: "2026-10-11T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    const page = await getFeedback("t");
+    expect(page.total).toBe(1);
+    expect(page.items[0]?.title).toBe("Login fails");
   });
 
   it("rejects responses that do not match the contract", async () => {

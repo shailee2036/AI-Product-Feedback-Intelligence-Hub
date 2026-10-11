@@ -25,5 +25,38 @@ export const productSchema = z.object({
   }),
 });
 
+export const importSchema = z.object({
+  id: z.uuid(),
+  status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
+  issue_limit: z.number(),
+  imported_count: z.number(),
+  skipped_count: z.number(),
+  not_modified: z.boolean(),
+  error_message: z.string().nullable(),
+  created_at: z.string(),
+  started_at: z.string().nullable(),
+  finished_at: z.string().nullable(),
+});
+
+export const feedbackPageSchema = z.object({
+  total: z.number(),
+  items: z.array(
+    z.object({
+      id: z.uuid(),
+      number: z.number(),
+      title: z.string(),
+      state: z.string(),
+      html_url: z.url(),
+      labels: z.array(z.string()),
+      comment_count: z.number(),
+      reactions_total: z.number(),
+      excerpt: z.string(),
+      updated_at: z.string(),
+    }),
+  ),
+});
+
 export type Me = z.infer<typeof meSchema>;
 export type Product = z.infer<typeof productSchema>;
+export type ImportJob = z.infer<typeof importSchema>;
+export type FeedbackPage = z.infer<typeof feedbackPageSchema>;

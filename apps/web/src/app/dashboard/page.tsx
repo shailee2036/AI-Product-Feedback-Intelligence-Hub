@@ -2,22 +2,29 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { signOut } from "@/app/login/actions";
-import { getMe, getProduct } from "@/lib/api/client";
+import { getCurrentImport, getFeedback, getMe, getProduct } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import type { Me, Product } from "@/lib/api/types";
+import type { FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
 import { getVerifiedAccessToken } from "@/lib/supabase/server";
 
+import { ImportPanel } from "./import-panel";
 import { RegisterRepositoryForm } from "./register-form";
 
 export const metadata: Metadata = { title: "Dashboard · Feedback Intelligence Hub" };
 
-type Loaded = { me: Me; product: Product | null } | { error: string };
+type Loaded =
+  | { me: Me; product: Product | null; job: ImportJob | null; feedback: FeedbackPage }
+  | { error: string };
+
+const EMPTY_FEEDBACK: FeedbackPage = { total: 0, items: [] };
 
 async function load(token: string): Promise<Loaded> {
   try {
     const me = await getMe(token);
     const product = await getProduct(token);
-    return { me, product };
+    if (!product) return { me, product, job: null, feedback: EMPTY_FEEDBACK };
+    const [job, feedback] = await Promise.all([getCurrentImport(token), getFeedback(token)]);
+    return { me, product, job, feedback };
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect("/login?next=/dashboard");
     return { error: error instanceof ApiError ? error.detail.message : "Something went wrong." };
@@ -54,7 +61,7 @@ export default async function DashboardPage() {
           <p className="mt-1">{data.error}</p>
         </section>
       ) : data.product ? (
-        <ProductCard product={data.product} />
+        <ProductCard product={data.product} job={data.job} feedback={data.feedback} />
       ) : (
         <section className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
           <h2 className="text-lg font-semibold">Register your product</h2>
@@ -68,7 +75,15 @@ export default async function DashboardPage() {
   );
 }
 
-function ProductCard({ product }: { product: Product }) {
+function ProductCard({
+  product,
+  job,
+  feedback,
+}: {
+  product: Product;
+  job: ImportJob | null;
+  feedback: FeedbackPage;
+}) {
   const repo = product.repository;
   const registered = new Date(product.created_at).toLocaleDateString("en-US", {
     year: "numeric",
@@ -104,12 +119,7 @@ function ProductCard({ product }: { product: Product }) {
           </div>
         </dl>
       </div>
-      <div className="rounded-lg border border-dashed border-zinc-300 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-        <p className="font-medium text-zinc-900 dark:text-zinc-100">Next: import GitHub issues</p>
-        <p className="mt-1">
-          Issue import and optional CSV upload arrive in the next milestone.
-        </p>
-      </div>
+      <ImportPanel job={job} feedback={feedback} />
     </section>
   );
 }

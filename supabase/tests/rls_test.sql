@@ -28,6 +28,28 @@ $$;
 insert into public.products (tenant_id, name, created_by)
 values (:'alice_tenant', 'appwrite', '00000000-0000-0000-0000-00000000000a');
 
+insert into public.github_repositories (
+  tenant_id, product_id, github_node_id, owner, name, full_name, html_url, default_branch, license_spdx
+)
+select :'alice_tenant', id, 'node-appwrite', 'appwrite', 'appwrite', 'appwrite/appwrite',
+       'https://github.com/appwrite/appwrite', 'main', 'BSD-3-Clause'
+from public.products
+returning id as alice_repo \gset
+
+insert into public.imports (tenant_id, product_id, repository_id, source, status, issue_limit, created_by)
+select :'alice_tenant', id, :'alice_repo', 'github_issues', 'succeeded', 100,
+       '00000000-0000-0000-0000-00000000000a'
+from public.products
+returning id as alice_import \gset
+
+insert into public.feedback_items (
+  tenant_id, product_id, import_id, source, external_id, github_number, title, state, html_url,
+  source_created_at, source_updated_at
+)
+select :'alice_tenant', id, :'alice_import', 'github_issue', 'issue-node-1', 1, 'Login fails',
+       'open', 'https://github.com/appwrite/appwrite/issues/1', now(), now()
+from public.products;
+
 reset role;
 select pg_temp.act_as('00000000-0000-0000-0000-00000000000b');
 select app.ensure_workspace('Bob Co') as bob_tenant \gset
@@ -39,6 +61,12 @@ begin
   end if;
   if exists (select 1 from public.products) then
     raise exception 'Bob can read Alice''s product';
+  end if;
+  if exists (select 1 from public.imports) then
+    raise exception 'Bob can read Alice''s imports';
+  end if;
+  if exists (select 1 from public.feedback_items) then
+    raise exception 'Bob can read Alice''s imported issues';
   end if;
   if exists (select 1 from public.memberships where user_id <> auth.uid()) then
     raise exception 'Bob can read another user''s membership';

@@ -4,7 +4,16 @@ import type { z } from "zod";
 import { getServerEnv } from "@/lib/server-env";
 
 import { ApiError, parseErrorDetail } from "./errors";
-import { meSchema, productSchema, type Me, type Product } from "./types";
+import {
+  feedbackPageSchema,
+  importSchema,
+  meSchema,
+  productSchema,
+  type FeedbackPage,
+  type ImportJob,
+  type Me,
+  type Product,
+} from "./types";
 
 const TIMEOUT_MS = 15_000;
 
@@ -53,6 +62,27 @@ export async function getProduct(accessToken: string): Promise<Product | null> {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
+}
+
+export function startIssueImport(accessToken: string): Promise<ImportJob> {
+  return request("/v1/imports", importSchema, { method: "POST", accessToken });
+}
+
+export async function getCurrentImport(accessToken: string): Promise<ImportJob | null> {
+  try {
+    return await request("/v1/imports/current", importSchema, { accessToken });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export function cancelIssueImport(accessToken: string, importId: string): Promise<ImportJob> {
+  return request(`/v1/imports/${importId}/cancel`, importSchema, { method: "POST", accessToken });
+}
+
+export function getFeedback(accessToken: string): Promise<FeedbackPage> {
+  return request("/v1/feedback?limit=20", feedbackPageSchema, { accessToken });
 }
 
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {
