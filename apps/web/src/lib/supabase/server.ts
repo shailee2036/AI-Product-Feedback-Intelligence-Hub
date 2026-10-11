@@ -31,3 +31,15 @@ export async function getVerifiedUserId(): Promise<string | null> {
   const sub = data?.claims?.sub;
   return typeof sub === "string" ? sub : null;
 }
+
+/**
+ * Access token to forward to the API, only after the session has been verified with getClaims().
+ * The API verifies the token again, so it never trusts this value on its own.
+ */
+export async function getVerifiedAccessToken(): Promise<string | null> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims?.sub) return null;
+  const { data: session } = await supabase.auth.getSession();
+  return session.session?.access_token ?? null;
+}
