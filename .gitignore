@@ -36,6 +36,10 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+
 # Generated artifacts
 sbom*.json
 trivy-results*.sarif
