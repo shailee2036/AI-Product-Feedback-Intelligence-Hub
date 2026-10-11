@@ -62,6 +62,50 @@ jobs:
       - name: Unit tests with coverage floor
         run: pytest -m "not integration"
 
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      FEEDBACK_HUB_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Apply migrations to a clean database
+        run: |
+          createdb migration_check
+          cat supabase/tests/auth_stub.sql supabase/migrations/*.sql \
+            | psql -d migration_check -v ON_ERROR_STOP=1 -q
+      - name: Row-level security tests
+        run: psql -d migration_check -v ON_ERROR_STOP=1 -q -f supabase/tests/rls_test.sql
+      - run: pip install -e ".[dev]"
+        working-directory: apps/api
+      - name: API integration tests
+        working-directory: apps/api
+        run: pytest -m integration --cov-fail-under=0
+
   seed-data-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -106,7 +150,7 @@ jobs:
   container-build-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-quality, unit-tests]
+    needs: [backend-quality, unit-tests, integration-tests]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
