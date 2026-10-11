@@ -1,0 +1,23 @@
+{
+  "company": "Appwrite",
+  "product": "Appwrite",
+  "github": {
+    "owner": "appwrite",
+    "repository": "appwrite",
+    "repository_url": "https://github.com/appwrite/appwrite",
+    "issues_url": "https://github.com/appwrite/appwrite/issues",
+    "visibility": "public",
+    "expected_license_spdx": "BSD-3-Clause",
+    "issue_states": [
+      "open",
+      "closed"
+    ],
+    "include_pull_requests": false,
+    "include_comments": true,
+    "order_by": "updated",
+    "direction": "desc",
+    "maximum_issues": 500
+  },
+  "csv_fixture": "appwrite-customer-feedback.csv",
+  "disclaimer": "GitHub issues are fetched live from the public repository. The bundled CSV is synthetic portfolio data and is not real Appwrite customer feedback."
+}
