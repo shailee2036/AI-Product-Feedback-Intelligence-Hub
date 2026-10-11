@@ -89,7 +89,8 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/imports` | user | Import the registered repository's most recently updated issues |
 | GET | `/v1/imports/current` | user | The latest import and its progress |
 | POST | `/v1/imports/{import_id}/cancel` | user | Cancel a queued or running import |
-| GET | `/v1/feedback` | user | Imported issues for the registered product |
+| GET | `/v1/feedback` | user | Imported issues and CSV rows for the registered product |
+| POST | `/v1/product/csv` | user | Upload a customer-feedback CSV for the registered product |
 
 Validate the seed fixtures:
 
