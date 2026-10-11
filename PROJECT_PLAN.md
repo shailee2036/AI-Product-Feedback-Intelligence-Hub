@@ -1,7 +1,7 @@
 # Open-Source Product Feedback Intelligence Hub
 
 > Complete implementation blueprint  
-> Deployment principle: Kubernetes hosts CPU-only application services; xAI and Hugging Face provide managed model inference. The project owns no GPU nodes and serves no model weights.  
+> Deployment principle: Kubernetes hosts CPU-only application services; Groq (free tier) and Hugging Face provide managed model inference. The project owns no GPU nodes and serves no model weights.  
 > Research checked: October 11, 2026. Recheck provider models, prices, rate limits, and API versions before implementation.
 
 ## 1. Product summary
@@ -254,12 +254,20 @@ Application-facing aliases:
 
 Recommended initial providers:
 
-- xAI for high-quality taxonomy, summaries, and product briefs.
-- Hugging Face Inference Providers for lower-cost experiments and managed feature extraction.
+- Groq (GroqCloud free plan) for taxonomy, theme summaries, and product briefs. No credit card is required.
+- Hugging Face Inference Providers for managed feature-extraction embeddings and as the fallback chat provider.
 - LiteLLM as a CPU-only provider gateway for generation.
-- A small backend embedding adapter for Hugging Face feature extraction, because Hugging Face’s OpenAI-compatible endpoint is chat-only.
+- A small backend embedding adapter for Hugging Face feature extraction, because Hugging Face’s OpenAI-compatible endpoint is chat-only and Groq does not offer an embeddings API.
 
-The xAI API also documents managed embedding endpoints. Discover the embedding models available to the account and benchmark them before choosing between xAI and Hugging Face.
+| Alias | Primary model (Groq) | Fallback |
+| --- | --- | --- |
+| `feedback-labeler` | `openai/gpt-oss-20b` | `qwen/qwen3.8-27b` on Groq |
+| `feedback-summarizer` | `openai/gpt-oss-120b` | `openai/gpt-oss-20b` on Groq, then Hugging Face |
+| `feedback-brief-writer` | `openai/gpt-oss-120b` | `qwen/qwen3.8-27b` on Groq, then Hugging Face |
+| `feedback-evaluator` | `openai/gpt-oss-20b` | `qwen/qwen3.8-27b` on Groq |
+| `feedback-embedding` | Hugging Face feature extraction (not Groq) | none; never mix embedding models in one index |
+
+Groq’s free plan limits are per organization **and per model**, so spreading aliases across models multiplies the usable daily budget. Discover the account’s active model IDs through `GET https://api.groq.com/openai/v1/models` at startup and fail readiness if a configured model is missing; the free-plan model list has changed several times in 2026.
 
 ### 4.3 Provider policy
 
@@ -272,7 +280,27 @@ The xAI API also documents managed embedding endpoints. Discover the embedding m
 - Run generation only after deterministic filtering has reduced the data volume.
 - Cache cluster summaries by cluster membership hash.
 
-### 4.4 Hugging Face cost caveat
+### 4.4 Groq free-plan limits
+
+Free-plan limits for each chat model at the time of research:
+
+| Limit | `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b` |
+| --- | --- |
+| Requests per minute | 30 |
+| Requests per day | 1,000 |
+| Tokens per minute | 8,000 |
+| Tokens per day | 200,000 |
+
+Design consequences:
+
+- Tokens per minute is the binding limit. Keep each request under about 6,000 total tokens by sending a theme’s top representative items, not every member.
+- Run all Groq calls through a single Redis-backed token-bucket limiter shared by the API and workers, keyed by model.
+- Read `x-ratelimit-remaining-tokens`, `x-ratelimit-remaining-requests`, and `retry-after` from every response; on `429`, back off for `retry-after` and requeue the job instead of failing it.
+- Budget estimate for the Appwrite seed (about 500 issues and 42 CSV rows): roughly 30–60 themes at about 4,000 tokens per summary comes to 120,000–240,000 tokens on `gpt-oss-120b`. That is one to two days of its free quota. Labeling uses `gpt-oss-20b`, which has its own separate quota.
+- Exported metrics: remaining tokens and requests per model, `429` count, and queued generation jobs.
+- If the project outgrows the free plan, Groq’s paid Developer plan is the cheapest upgrade (`gpt-oss-20b` at $0.075 input and $0.30 output per million tokens). Only configuration changes.
+
+### 4.5 Hugging Face cost caveat
 
 Do not design around an assumed permanent free tier. The current stable Hugging Face pricing page says free users receive no recurring included Inference Providers credit and must purchase credits or upgrade; Pro users receive a small monthly credit. Other documentation may show a small, changeable trial credit. The application must work with paid usage and hard limits.
 
@@ -297,7 +325,7 @@ flowchart LR
     Analyzer --> Embed[ManagedEmbeddingAPI]
     Api --> Gateway["LiteLLM CPU Pod"]
     Analyzer --> Gateway
-    Gateway --> Xai[xAIManagedAPI]
+    Gateway --> Groq[GroqCloudAPI]
     Gateway --> HF[HuggingFaceInferenceProviders]
     Api --> Otel[OpenTelemetryCollector]
     Importer --> Otel
@@ -499,8 +527,8 @@ flowchart LR
 
 - Vercel: web application.
 - Supabase: Auth, PostgreSQL, `pgvector`, and object storage.
-- xAI: primary managed language model and optional embeddings.
-- Hugging Face Inference Providers: managed embeddings and alternate language models.
+- Groq: primary managed language models on the free plan.
+- Hugging Face Inference Providers: managed embeddings and fallback language models.
 - Upstash or another managed Redis: queues.
 - Grafana Cloud or the Grafana stack in CPU Kubernetes.
 - GitHub REST API: repository validation, issue ingestion, and optional confirmed comments, labels, or new-issue creation.
@@ -545,7 +573,7 @@ Create:
 
 - Vercel project.
 - Supabase project.
-- xAI API account and key.
+- Groq account and API key from [console.groq.com/keys](https://console.groq.com/keys) (free plan, no card).
 - Hugging Face account and inference token.
 - GitHub App or fine-grained token for development imports.
 - Managed Redis instance.
@@ -615,15 +643,17 @@ Choose and lock the queue and clustering packages after a benchmark spike.
   - [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)
   - [Supabase pgvector](https://supabase.com/docs/guides/database/extensions/pgvector)
 
-#### xAI
+#### Groq
 
-- Base URL: `https://api.x.ai/v1`.
-- Authentication: bearer API key.
-- Purpose: taxonomy, theme summaries, product briefs, and optional embeddings.
-- Discover account-visible model IDs through `/v1/models`.
+- Base URL: `https://api.groq.com/openai/v1` (OpenAI-compatible chat completions).
+- Authentication: bearer API key (`GROQ_API_KEY`). It is held only by the LiteLLM pod; the API and workers call LiteLLM with virtual keys.
+- Purpose: taxonomy labels, theme summaries, product briefs, and evaluator checks. No embeddings.
+- Use JSON-schema structured outputs and still validate every response with Pydantic, including evidence IDs.
+- Discover account-visible model IDs through `/models`.
 - References:
-  - [xAI REST API](https://docs.x.ai/developers/rest-api-reference/inference)
-  - [xAI pricing](https://docs.x.ai/developers/pricing)
+  - [Groq models](https://console.groq.com/docs/models)
+  - [Groq rate limits](https://console.groq.com/docs/rate-limits)
+  - [Groq structured outputs](https://console.groq.com/docs/structured-outputs)
 
 #### Hugging Face Inference Providers
 
@@ -853,7 +883,7 @@ GitHub resolution output:
 - Validate Supabase JWT issuer, audience, signature, and expiry.
 - Resolve tenant membership server-side.
 - Use RLS and API authorization.
-- Encrypt GitHub, xAI, and Hugging Face tokens.
+- Encrypt GitHub, Groq, and Hugging Face tokens.
 - Use least-privilege GitHub scopes and keep write access optional.
 - Treat imported text as untrusted prompt content.
 - Strip instructions from source text by policy; never execute imported links or code.
@@ -1120,7 +1150,7 @@ Start disposable PostgreSQL with `pgvector` and Redis service containers. Run:
 - API plus worker queue processing;
 - CSV upload through normalized feedback persistence;
 - GitHub import using a local mock server with pagination, ETags, `403`, `429`, and retry headers;
-- xAI, Hugging Face, and LiteLLM interactions through recorded or mocked HTTP contracts;
+- Groq, Hugging Face, and LiteLLM interactions through recorded or mocked HTTP contracts, including Groq `429` responses with `retry-after`;
 - embedding storage, similarity query, clustering job, and theme persistence;
 - canonical-issue linking and a blocked duplicate-creation scenario;
 - audit-event and OpenTelemetry propagation.
@@ -1207,7 +1237,7 @@ Deterministic PR checks:
 
 Scheduled tests with strict provider budgets:
 
-- small xAI and Hugging Face connectivity smoke tests;
+- small Groq and Hugging Face connectivity smoke tests (one short request each, to protect free-plan quotas);
 - held-out duplicate, taxonomy, citation, and groundedness evaluations;
 - regression comparison against the latest accepted baseline;
 - alert when quality drops beyond a defined tolerance.
@@ -1221,7 +1251,7 @@ Store evaluation results, not sensitive prompts or customer content, as CI artif
 - Vercel creates a frontend preview.
 - Preview builds use mock AI providers and isolated test data.
 - Forked pull requests receive no repository or deployment secrets.
-- Never expose Supabase service-role, xAI, Hugging Face, GitHub App private keys, or Kubernetes credentials to preview code.
+- Never expose Supabase service-role, Groq, Hugging Face, GitHub App private keys, or Kubernetes credentials to preview code.
 
 #### Staging
 
@@ -1312,7 +1342,7 @@ Scheduled provider smoke tests should alert maintainers but should not block unr
 
 - Benchmark candidate clustering methods.
 - Candidate themes with deterministic trends.
-- xAI labeling/summarization through LiteLLM.
+- Groq labeling/summarization through LiteLLM with the shared rate limiter.
 - Human merge, split, relabel, approve, and dismiss workflow.
 
 ### Milestone 5: product briefs
@@ -1362,6 +1392,8 @@ Scheduled provider smoke tests should alert maintainers but should not block unr
 - Use deterministic taxonomy rules before LLM classification.
 - Put per-import record and cost limits in the UI.
 - Configure LiteLLM and provider hard budgets.
+- Stay within Groq’s free plan: limit tokens per request, rate-limit per model, and pause generation jobs once the daily token budget is used up.
+- PR CI never calls Groq; all model calls are mocked.
 - Disable anonymous imports and analysis.
 - Run large evaluation jobs manually or on schedule.
 
@@ -1374,6 +1406,7 @@ The main cost drivers are managed embedding volume, generated theme/brief tokens
 Record:
 
 - managed inference instead of self-hosted models;
+- Groq free plan as the primary generation provider instead of paid xAI, accepting tighter rate limits;
 - LiteLLM for generation routing and spend control;
 - separate embedding adapter because Hugging Face chat compatibility does not cover embeddings;
 - Supabase for Auth, database, vectors, and storage;
