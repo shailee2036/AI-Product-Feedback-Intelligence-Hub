@@ -15,6 +15,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"
   FEEDBACK_HUB_ENVIRONMENT: test
 
 jobs:
@@ -105,6 +106,39 @@ jobs:
       - name: API integration tests
         working-directory: apps/api
         run: pytest -m integration --cov-fail-under=0
+
+  frontend-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests with coverage floor
+        run: npm run test:coverage
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          API_URL: http://127.0.0.1:8000
+        run: npm run build
 
   seed-data-validation:
     runs-on: ubuntu-latest

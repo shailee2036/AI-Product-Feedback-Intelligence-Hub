@@ -9,6 +9,15 @@ updates:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
 
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
   - package-ecosystem: docker
     directory: /apps/api
     schedule:

@@ -12,13 +12,14 @@ The full blueprint lives in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 | Path | Purpose |
 | --- | --- |
 | `apps/api` | FastAPI backend: product registration, eligibility, imports, analysis APIs |
+| `apps/web` | Next.js frontend: Supabase sign-in, dashboard, repository registration |
 | `supabase/migrations` | Postgres schema and row-level security policies (source of truth) |
 | `supabase/tests` | SQL row-level security tests and a Supabase auth stub for plain Postgres |
 | `seed-data` | Appwrite seed source and synthetic CSV fixture |
 | `compose.yaml` | Local Postgres (pgvector) and Redis for integration tests |
 | `.github/workflows` | CI, security, and delivery pipelines |
 
-More workspaces (`apps/web`, workers, `infra/helm`, `supabase`) are added as milestones land.
+More workspaces (workers, `infra/helm`) are added as milestones land.
 
 ## Local development
 
@@ -36,6 +37,23 @@ ruff format --check . && ruff check . && mypy
 pytest -m "not integration"
 uvicorn feedback_hub.main:app --reload
 ```
+
+### Frontend
+
+Requires Node.js 22 or newer and the backend running on `http://127.0.0.1:8000`.
+
+```bash
+cd apps/web
+npm ci
+cp .env.example .env.local   # Supabase URL + publishable key; API_URL; SITE_URL=http://localhost:3100
+
+npm run lint && npm run typecheck && npm run test:coverage
+npm run dev                  # http://localhost:3100
+```
+
+The browser only talks to Supabase Auth. Calls to the API happen in server components and
+server actions, which forward the signed-in user's access token, so `API_URL` is never exposed
+to the browser and the API needs no CORS configuration.
 
 ### Integration tests
 
@@ -77,5 +95,6 @@ python -m feedback_hub.seed.validate ../../seed-data
 
 ## Contributing
 
-All changes land through pull requests into `main`. CI must pass lint, type checks, unit
-tests, seed-data validation, secret scanning, CodeQL, dependency review, and container scanning.
+All changes land through pull requests into `main`. CI must pass backend and frontend lint,
+type checks, unit and integration tests, the frontend production build, seed-data validation,
+secret scanning, CodeQL, dependency review, and container scanning.
