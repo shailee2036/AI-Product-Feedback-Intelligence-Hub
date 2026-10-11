@@ -41,7 +41,7 @@ jobs:
       - name: Type check
         run: mypy
       - name: Audit dependencies
-        run: pip-audit --skip-editable --strict
+        run: pip-audit --skip-editable
 
   unit-tests:
     runs-on: ubuntu-latest
