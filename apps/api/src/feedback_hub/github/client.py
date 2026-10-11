@@ -38,6 +38,21 @@ def build_http_client(settings: Settings) -> httpx.AsyncClient:
     )
 
 
+class IssuePage:
+    def __init__(
+        self,
+        issues: list[dict[str, Any]],
+        *,
+        etag: str | None,
+        has_next: bool,
+        not_modified: bool,
+    ) -> None:
+        self.issues = issues
+        self.etag = etag
+        self.has_next = has_next
+        self.not_modified = not_modified
+
+
 class GitHubClient:
     def __init__(self, http: httpx.AsyncClient) -> None:
         self._http = http
@@ -54,6 +69,49 @@ class GitHubClient:
             raise GitHubError(f"GitHub returned HTTP {response.status_code}.")
         payload: dict[str, Any] = response.json()
         return payload
+
+    async def list_issues_page(
+        self,
+        owner: str,
+        name: str,
+        *,
+        page: int,
+        per_page: int,
+        etag: str | None = None,
+    ) -> IssuePage:
+        """One page of issues, newest update first. Callers skip pull requests."""
+        headers = {"If-None-Match": etag} if etag else None
+        response = await self._http.get(
+            f"/repos/{owner}/{name}/issues",
+            params={
+                "state": "all",
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": per_page,
+                "page": page,
+            },
+            headers=headers,
+        )
+        if response.status_code == 304:
+            return IssuePage([], etag=etag, has_next=False, not_modified=True)
+        if response.status_code in {403, 429} and _is_rate_limited(response):
+            raise GitHubRateLimitedError(_reset_time(response))
+        if response.is_error:
+            raise GitHubError(f"GitHub returned HTTP {response.status_code}.")
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise GitHubError("GitHub issues response was not a list.")
+        issues = [item for item in payload if isinstance(item, dict)]
+        return IssuePage(
+            issues,
+            etag=response.headers.get("etag"),
+            has_next=_has_next_page(response),
+            not_modified=False,
+        )
+
+
+def _has_next_page(response: httpx.Response) -> bool:
+    return any('rel="next"' in part for part in response.headers.get("link", "").split(","))
 
 
 def _is_rate_limited(response: httpx.Response) -> bool:
