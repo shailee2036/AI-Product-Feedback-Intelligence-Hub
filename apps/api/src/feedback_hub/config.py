@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     environment: Literal["local", "test", "staging", "production"] = "local"
     service_name: str = "feedback-hub-api"
 
+    database_url: SecretStr | None = None
+    database_pool_size: int = Field(default=5, gt=0)
+
     supabase_url: HttpUrl | None = None
     jwt_audience: str = "authenticated"
     jwks_cache_seconds: int = Field(default=600, gt=0)
