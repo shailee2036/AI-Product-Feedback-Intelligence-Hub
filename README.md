@@ -86,6 +86,10 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | GET | `/v1/me` | user | Current user; creates the workspace on first call |
 | GET | `/v1/product` | user | The workspace's registered product |
 | POST | `/v1/product/github` | user | Register the workspace product from an eligible repository |
+| POST | `/v1/imports` | user | Import the registered repository's most recently updated issues |
+| GET | `/v1/imports/current` | user | The latest import and its progress |
+| POST | `/v1/imports/{import_id}/cancel` | user | Cancel a queued or running import |
+| GET | `/v1/feedback` | user | Imported issues for the registered product |
 
 Validate the seed fixtures:
 
