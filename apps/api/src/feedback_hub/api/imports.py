@@ -63,20 +63,24 @@ class ImportOut(BaseModel):
 
 class FeedbackOut(BaseModel):
     id: UUID
-    number: int
+    source: Literal["github_issue", "csv"]
+    number: int | None
     title: str
-    state: str
-    html_url: str
+    state: str | None
+    html_url: str | None
     labels: list[str]
     comment_count: int
     reactions_total: int
     excerpt: str
+    product_area: str | None
+    is_synthetic: bool
     updated_at: datetime
 
     @classmethod
     def from_item(cls, item: FeedbackItem) -> "FeedbackOut":
         return cls(
             id=item.id,
+            source=item.source,
             number=item.github_number,
             title=item.title,
             state=item.state,
@@ -85,6 +89,8 @@ class FeedbackOut(BaseModel):
             comment_count=item.comment_count,
             reactions_total=item.reactions_total,
             excerpt=item.excerpt,
+            product_area=item.product_area,
+            is_synthetic=item.is_synthetic,
             updated_at=item.source_updated_at,
         )
 
@@ -202,7 +208,9 @@ async def cancel(
 
 @router.get("/v1/feedback", response_model=FeedbackPage)
 async def read_feedback(
-    conn: UserConnection, limit: Annotated[int, Query(ge=1, le=100)] = 20
+    conn: UserConnection,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    source: Annotated[Literal["github_issue", "csv"] | None, Query()] = None,
 ) -> FeedbackPage:
-    items, total = await list_feedback(conn, limit=limit)
+    items, total = await list_feedback(conn, limit=limit, source=source)
     return FeedbackPage(total=total, items=[FeedbackOut.from_item(item) for item in items])

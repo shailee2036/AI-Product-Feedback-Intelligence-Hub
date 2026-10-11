@@ -47,6 +47,7 @@ class Settings(BaseSettings):
         }
     )
 
+    csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)
     csv_max_feedback_chars: int = Field(default=10_000, gt=0)
 

@@ -18,6 +18,7 @@ dependencies = [
   "pyjwt[crypto]>=2.9",
   "sqlalchemy[asyncio]>=2.0.36",
   "asyncpg>=0.30",
+  "python-multipart>=0.0.18",
 ]
 
 [project.optional-dependencies]
