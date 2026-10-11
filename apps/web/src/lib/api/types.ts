@@ -38,25 +38,36 @@ export const importSchema = z.object({
   finished_at: z.string().nullable(),
 });
 
+export const feedbackItemSchema = z.object({
+  id: z.uuid(),
+  source: z.enum(["github_issue", "csv"]),
+  number: z.number().nullable(),
+  title: z.string(),
+  state: z.string().nullable(),
+  html_url: z.url().nullable(),
+  labels: z.array(z.string()),
+  comment_count: z.number(),
+  reactions_total: z.number(),
+  excerpt: z.string(),
+  product_area: z.string().nullable(),
+  is_synthetic: z.boolean(),
+  updated_at: z.string(),
+});
+
 export const feedbackPageSchema = z.object({
   total: z.number(),
-  items: z.array(
-    z.object({
-      id: z.uuid(),
-      number: z.number(),
-      title: z.string(),
-      state: z.string(),
-      html_url: z.url(),
-      labels: z.array(z.string()),
-      comment_count: z.number(),
-      reactions_total: z.number(),
-      excerpt: z.string(),
-      updated_at: z.string(),
-    }),
-  ),
+  items: z.array(feedbackItemSchema),
+});
+
+export const csvImportSchema = z.object({
+  import_id: z.uuid(),
+  imported_count: z.number(),
+  warnings: z.array(z.string()),
 });
 
 export type Me = z.infer<typeof meSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ImportJob = z.infer<typeof importSchema>;
 export type FeedbackPage = z.infer<typeof feedbackPageSchema>;
+export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
+export type CsvImport = z.infer<typeof csvImportSchema>;

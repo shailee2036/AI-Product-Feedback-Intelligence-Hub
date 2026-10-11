@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { cancelIssueImport, registerGithubProduct, startIssueImport } from "@/lib/api/client";
+import {
+  cancelIssueImport,
+  registerGithubProduct,
+  startIssueImport,
+  uploadFeedbackCsv,
+} from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { describeReason } from "@/lib/eligibility";
 import { parseRepositoryInput } from "@/lib/repository";
@@ -39,6 +44,29 @@ export async function registerRepository(
 }
 
 export type ImportState = { error?: string };
+
+export type CsvUploadState = { error?: string; reasons?: string[]; saved?: number };
+
+export async function uploadCsv(
+  _previous: CsvUploadState,
+  formData: FormData,
+): Promise<CsvUploadState> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a CSV file." };
+  if (!file.name.toLowerCase().endsWith(".csv")) return { error: "Choose a .csv file." };
+
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  try {
+    const result = await uploadFeedbackCsv(token, file);
+    revalidatePath("/dashboard");
+    return { saved: result.imported_count };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.status === 404) return { error: "Register a repository before uploading feedback." };
+    return { error: error.detail.message, reasons: error.detail.reasons };
+  }
+}
 
 export async function startImport(): Promise<ImportState> {
   const token = await getVerifiedAccessToken();

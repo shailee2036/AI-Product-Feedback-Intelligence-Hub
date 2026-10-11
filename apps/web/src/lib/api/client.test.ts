@@ -8,6 +8,7 @@ import {
   getProduct,
   registerGithubProduct,
   startIssueImport,
+  uploadFeedbackCsv,
 } from "./client";
 import { ApiError } from "./errors";
 
@@ -153,6 +154,7 @@ describe("API client", () => {
         items: [
           {
             id: "8a4b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+            source: "github_issue",
             number: 42,
             title: "Login fails",
             state: "open",
@@ -161,14 +163,35 @@ describe("API client", () => {
             comment_count: 1,
             reactions_total: 2,
             excerpt: "Customers cannot complete login.",
+            product_area: null,
+            is_synthetic: false,
             updated_at: "2026-10-11T00:00:00Z",
           },
         ],
       }),
     );
-    const page = await getFeedback("t");
+    const page = await getFeedback("t", { source: "github_issue", limit: 20 });
     expect(page.total).toBe(1);
     expect(page.items[0]?.title).toBe("Login fails");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("source=github_issue");
+  });
+
+  it("uploads a csv without setting a content type", async () => {
+    fetchMock.mockResolvedValue(
+      respond(201, {
+        import_id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+        imported_count: 42,
+        warnings: [],
+      }),
+    );
+
+    const saved = await uploadFeedbackCsv("t", new File(["id,feedback"], "feedback.csv", { type: "text/csv" }));
+
+    expect(saved.imported_count).toBe(42);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init?.body).toBeInstanceOf(FormData);
+    expect(new Headers(init?.headers).get("Content-Type")).toBeNull();
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/product/csv");
   });
 
   it("rejects responses that do not match the contract", async () => {
