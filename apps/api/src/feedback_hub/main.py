@@ -1,11 +1,13 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
 from feedback_hub import __version__
 from feedback_hub.api import health, repositories
+from feedback_hub.auth import SupabaseJwtVerifier
 from feedback_hub.config import get_settings
 from feedback_hub.github.client import GitHubClient, build_http_client
 from feedback_hub.observability import metrics_middleware
@@ -13,8 +15,19 @@ from feedback_hub.observability import metrics_middleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    async with build_http_client(get_settings()) as http:
-        app.state.github = GitHubClient(http)
+    settings = get_settings()
+    async with AsyncExitStack() as stack:
+        github_http = await stack.enter_async_context(build_http_client(settings))
+        app.state.github = GitHubClient(github_http)
+
+        if settings.supabase_url is not None:
+            auth_http = await stack.enter_async_context(httpx.AsyncClient(timeout=5.0))
+            app.state.jwt_verifier = SupabaseJwtVerifier(
+                auth_http,
+                supabase_url=str(settings.supabase_url),
+                audience=settings.jwt_audience,
+                cache_seconds=settings.jwks_cache_seconds,
+            )
         yield
 
 
