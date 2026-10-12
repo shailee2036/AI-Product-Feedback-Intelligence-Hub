@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     gemini_embedding_version: str = "1"
     gemini_timeout_seconds: float = Field(default=30.0, gt=0)
     gemini_embedding_batch_size: int = Field(default=16, ge=1, le=100)
+    duplicate_similarity_threshold: float = Field(default=0.86, gt=0, le=1)
+    duplicate_neighbor_count: int = Field(default=2, ge=1, le=5)
 
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)
