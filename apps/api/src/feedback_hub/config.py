@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     gemini_embedding_batch_size: int = Field(default=16, ge=1, le=100)
     duplicate_similarity_threshold: float = Field(default=0.86, gt=0, le=1)
     duplicate_neighbor_count: int = Field(default=2, ge=1, le=5)
+    cluster_similarity_threshold: float = Field(default=0.82, gt=0, le=1)
+    cluster_neighbor_count: int = Field(default=3, ge=1, le=10)
+    cluster_minimum_size: int = Field(default=3, ge=2, le=20)
 
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)

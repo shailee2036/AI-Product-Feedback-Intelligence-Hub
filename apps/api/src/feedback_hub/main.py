@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from feedback_hub import __version__
 from feedback_hub.api import (
+    clusters,
     csv_import,
     duplicates,
     embeddings,
@@ -112,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(imports.router)
     app.include_router(embeddings.router)
     app.include_router(duplicates.router)
+    app.include_router(clusters.router)
     app.mount("/metrics", make_asgi_app())
     return app
 
