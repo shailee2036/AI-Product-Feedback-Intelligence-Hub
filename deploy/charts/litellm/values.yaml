@@ -1,0 +1,37 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/berriai/litellm-non_root
+  tag: v1.105.0
+  digest: sha256:763ad5871b2747fba2c4872b504ac43ca452a6fbf49fb2b0345a42abacf6f91a
+  pullPolicy: IfNotPresent
+
+service:
+  port: 4000
+
+# Name of a Secret created outside this chart. Expected keys are GROQ_API_KEY and
+# LITELLM_MASTER_KEY. Do not put those values here.
+existingSecret: feedback-hub-litellm
+
+# Only pods with these labels may reach the proxy.
+allowedClients:
+  app.kubernetes.io/name: feedback-hub-api
+
+# Groq free-plan limits for openai/gpt-oss-20b. Requests over them are refused
+# by the proxy instead of being sent to Groq.
+models:
+  - name: theme-writer
+    model: groq/openai/gpt-oss-20b
+    apiKeyEnv: GROQ_API_KEY
+    rpm: 30
+    tpm: 8000
+
+requestTimeoutSeconds: 12
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi

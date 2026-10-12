@@ -1,0 +1,6 @@
+apiVersion: v2
+name: feedback-hub-litellm
+description: CPU-only LiteLLM proxy for theme and brief generation. Credentials come from an existing Secret.
+type: application
+version: 0.1.0
+appVersion: "1.105.0"
