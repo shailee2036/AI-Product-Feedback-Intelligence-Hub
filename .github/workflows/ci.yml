@@ -230,7 +230,15 @@ jobs:
           tar -xzf helm.tgz
           sudo mv linux-amd64/helm /usr/local/bin/helm
           helm version
-      - name: Lint and render the API chart
+      - name: Install kubeconform
+        run: |
+          version=v0.8.0
+          curl -fsSL -o kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${version}/kubeconform-linux-amd64.tar.gz"
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
+      - name: Lint, render, and validate the API chart
         run: |
           tag="${GITHUB_SHA}"
           helm lint deploy/charts/api --set "image.tag=${tag}"
@@ -243,3 +251,4 @@ jobs:
             echo "Rendered chart violates the CPU deployment policy."
             exit 1
           fi
+          kubeconform -strict -summary -kubernetes-version 1.37.0 rendered.yaml
