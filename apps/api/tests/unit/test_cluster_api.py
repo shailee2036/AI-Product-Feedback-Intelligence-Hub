@@ -48,10 +48,13 @@ class _Conn:
         self.status: dict[UUID, str] = {}
         self.briefs: dict[UUID, dict[str, Any]] = {}
         self.brief_versions: dict[UUID, list[dict[str, Any]]] = {}
+        self.github_issues: list[dict[str, Any]] = []
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
         sql = " ".join(str(statement).split())
+        if "github_number" in sql and "from public.feedback_items" in sql:
+            return _Result([_Row(**issue) for issue in self.github_issues])
         if "from public.feedback_items" in sql:
             return _Result([_Row(**item) for item in self.items])
         if sql.startswith("select feedback_item_id from public.feedback_embeddings"):
@@ -352,9 +355,57 @@ async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
     assert score["embedded_count"] == 3
     assert score["named"] is False
     assert score["score"] == 0.46
+    assert body["clusters"][0]["canonical"] is None
+    assert body["clusters"][0]["duplicate_warnings"] == []
     assert again.json()["cluster_count"] == 1
     assert len(conn.clusters) == 1
     assert audits[-1]["action"] == "cluster.completed"
+
+
+async def test_report_recommends_an_open_github_issue(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, _audits, _groq, _settings = cluster_api
+    issue_id = conn.items[0]["id"]
+    outside = uuid4()
+    conn.github_issues = [
+        {
+            "id": issue_id,
+            "github_number": 7,
+            "title": "Show import progress",
+            "state": "open",
+            "html_url": "https://github.com/appwrite/appwrite/issues/7",
+            "comment_count": 4,
+            "reactions_total": 2,
+            "source_updated_at": datetime(2026, 10, 11, tzinfo=UTC),
+        },
+        {
+            "id": outside,
+            "github_number": 9,
+            "title": "Import stays on zero",
+            "state": "open",
+            "html_url": "https://github.com/appwrite/appwrite/issues/9",
+            "comment_count": 1,
+            "reactions_total": 0,
+            "source_updated_at": datetime(2026, 9, 1, tzinfo=UTC),
+        },
+    ]
+    left, right = (issue_id, outside) if issue_id < outside else (outside, issue_id)
+    conn.pairs.append((left, right, 0.9))
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+
+    response = await client.post("/v1/feedback/clusters", headers=headers)
+
+    assert response.status_code == 200
+    cluster = response.json()["clusters"][0]
+    canonical = cluster["canonical"]
+    assert canonical["number"] == 7
+    assert canonical["state"] == "open"
+    assert canonical["html_url"].endswith("/issues/7")
+    assert canonical["comment_count"] == 4
+    assert canonical["reactions_total"] == 2
+    warning = cluster["duplicate_warnings"][0]
+    assert warning["number"] == 9
+    assert warning["similarity"] == 0.9
+    assert warning["html_url"].endswith("/issues/9")
 
 
 async def test_naming_requires_a_groq_key(cluster_api: Any) -> None:
