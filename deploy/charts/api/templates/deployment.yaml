@@ -38,6 +38,10 @@ spec:
           env:
             - name: FEEDBACK_HUB_ENVIRONMENT
               value: {{ .Values.environment | quote }}
+            {{- with .Values.litellmBaseUrl }}
+            - name: FEEDBACK_HUB_LITELLM_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ .Values.existingSecret | quote }}
