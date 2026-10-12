@@ -95,10 +95,19 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | GET | `/v1/feedback/embeddings/current` | user | Latest embedding run and how many vectors are stored |
 | POST | `/v1/feedback/duplicates` | user | Rebuild exact and semantic duplicate links |
 | GET | `/v1/feedback/duplicates` | user | Latest duplicate groups; original rows are unchanged |
+| POST | `/v1/feedback/clusters` | user | Group embedded feedback into candidate themes |
+| GET | `/v1/feedback/clusters` | user | Latest candidate themes; original rows are unchanged |
+| POST | `/v1/feedback/clusters/names` | user | Name untitled themes from redacted titles |
 
 Exact duplicates share a hash of the redacted text. Semantic duplicates are mutual nearest
 neighbors with cosine similarity of at least 0.86. A starter set of labeled seed pairs is scored
 with each run. The full 200-pair review is later manual labeling.
+
+Candidate themes are mutual nearest neighbors with cosine similarity of at least 0.82 and at
+least three rows. A starter set of seed themes is scored with each run. Naming sends up to six
+redacted titles per theme to Groq in one request and stores a short name and summary. A name
+already stored, including one marked as edited, stays in place. Finding themes again replaces
+the clusters, including stored names. Merge, split, and approval come later.
 
 Validate the seed fixtures:
 

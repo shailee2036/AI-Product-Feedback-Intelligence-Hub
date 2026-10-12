@@ -2,13 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelIssueImport,
+  findClusters,
   findDuplicates,
+  getClusters,
   getCurrentEmbeddings,
   getCurrentImport,
   getDuplicates,
   getFeedback,
   getMe,
   getProduct,
+  nameClusters,
   registerGithubProduct,
   startEmbeddings,
   startIssueImport,
@@ -270,6 +273,51 @@ describe("API client", () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/duplicates");
     expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[1][1]?.method).toBe("GET");
+  });
+
+  it("finds themes and reads the stored clusters", async () => {
+    const report = {
+      ran: true,
+      cluster_count: 2,
+      member_count: 6,
+      threshold: 0.82,
+      neighbor_count: 3,
+      minimum_size: 3,
+      named_count: 1,
+      clusters: [
+        {
+          id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+          name: "Import progress",
+          summary: "People want import progress.",
+          members: [
+            {
+              id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+              source: "csv",
+              external_id: "AW-SYN-007",
+              title: "Import progress",
+            },
+          ],
+        },
+      ],
+      evaluation: { labeled: 5, gathered: 4, mean_cohesion: 0.73 },
+    };
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+
+    const found = await findClusters("t");
+    const current = await getClusters("t");
+
+    expect(found.cluster_count).toBe(2);
+    expect(current.evaluation?.gathered).toBe(4);
+    expect(current.clusters[0]?.name).toBe("Import progress");
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/clusters");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+    const named = await nameClusters("t");
+    expect(named.named_count).toBe(1);
+    expect(String(fetchMock.mock.calls[2][0])).toBe("http://api.test/v1/feedback/clusters/names");
+    expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
   });
 
   it("rejects responses that do not match the contract", async () => {

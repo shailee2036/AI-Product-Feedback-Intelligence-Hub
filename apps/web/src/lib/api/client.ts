@@ -5,6 +5,7 @@ import { getServerEnv } from "@/lib/server-env";
 
 import { ApiError, parseErrorDetail } from "./errors";
 import {
+  clusterReportSchema,
   csvImportSchema,
   duplicateReportSchema,
   embeddingStatusSchema,
@@ -12,6 +13,7 @@ import {
   importSchema,
   meSchema,
   productSchema,
+  type ClusterReport,
   type CsvImport,
   type DuplicateReport,
   type EmbeddingStatus,
@@ -131,6 +133,21 @@ export function findDuplicates(accessToken: string): Promise<DuplicateReport> {
 
 export function getDuplicates(accessToken: string): Promise<DuplicateReport> {
   return request("/v1/feedback/duplicates", duplicateReportSchema, { accessToken });
+}
+
+export function findClusters(accessToken: string): Promise<ClusterReport> {
+  return request("/v1/feedback/clusters", clusterReportSchema, { method: "POST", accessToken });
+}
+
+export function getClusters(accessToken: string): Promise<ClusterReport> {
+  return request("/v1/feedback/clusters", clusterReportSchema, { accessToken });
+}
+
+export function nameClusters(accessToken: string): Promise<ClusterReport> {
+  return request("/v1/feedback/clusters/names", clusterReportSchema, {
+    method: "POST",
+    accessToken,
+  });
 }
 
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {

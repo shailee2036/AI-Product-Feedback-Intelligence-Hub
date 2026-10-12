@@ -74,6 +74,26 @@ insert into public.dedupe_runs (
 select :'alice_tenant', id, 1, 0, 1, 0.86, 2, 'gemini', 'gemini-embedding-001', '1'
 from public.products;
 
+insert into public.analysis_runs (
+  tenant_id, product_id, cluster_count, member_count, threshold, neighbor_count, minimum_size,
+  provider, model, model_version
+)
+select :'alice_tenant', id, 1, 1, 0.82, 3, 3, 'gemini', 'gemini-embedding-001', '1'
+from public.products
+returning id as alice_analysis \gset
+
+insert into public.candidate_clusters (tenant_id, product_id, analysis_run_id)
+select :'alice_tenant', id, :'alice_analysis'
+from public.products
+returning id as alice_cluster \gset
+
+insert into public.candidate_cluster_members (
+  cluster_id, feedback_item_id, tenant_id, product_id
+)
+select :'alice_cluster', id, :'alice_tenant', product_id
+from public.feedback_items
+where external_id = 'issue-node-1';
+
 reset role;
 select pg_temp.act_as('00000000-0000-0000-0000-00000000000b');
 select app.ensure_workspace('Bob Co') as bob_tenant \gset
@@ -97,6 +117,15 @@ begin
   end if;
   if exists (select 1 from public.dedupe_runs) then
     raise exception 'Bob can read Alice''s dedupe runs';
+  end if;
+  if exists (select 1 from public.analysis_runs) then
+    raise exception 'Bob can read Alice''s analysis runs';
+  end if;
+  if exists (select 1 from public.candidate_clusters) then
+    raise exception 'Bob can read Alice''s candidate clusters';
+  end if;
+  if exists (select 1 from public.candidate_cluster_members) then
+    raise exception 'Bob can read Alice''s cluster members';
   end if;
   if exists (select 1 from public.memberships where user_id <> auth.uid()) then
     raise exception 'Bob can read another user''s membership';
@@ -183,6 +212,9 @@ begin
   end if;
   if (select count(*) from public.duplicate_edges) <> 1 then
     raise exception 'Alice''s duplicate edge disappeared';
+  end if;
+  if (select count(*) from public.candidate_clusters) <> 1 then
+    raise exception 'Alice''s candidate cluster disappeared';
   end if;
 end
 $$;

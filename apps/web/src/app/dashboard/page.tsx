@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { signOut } from "@/app/login/actions";
-import { getCurrentEmbeddings, getCurrentImport, getDuplicates, getFeedback, getMe, getProduct } from "@/lib/api/client";
+import { getClusters, getCurrentEmbeddings, getCurrentImport, getDuplicates, getFeedback, getMe, getProduct } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import type { DuplicateReport, EmbeddingStatus, FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
+import type { ClusterReport, DuplicateReport, EmbeddingStatus, FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
 import { getVerifiedAccessToken } from "@/lib/supabase/server";
 
+import { ClusterPanel } from "./cluster-panel";
 import { CsvPanel } from "./csv-panel";
 import { DuplicatePanel } from "./duplicate-panel";
 import { EmbeddingPanel } from "./embedding-panel";
@@ -24,6 +25,7 @@ type Loaded =
       csvFeedback: FeedbackPage;
       embeddings: EmbeddingStatus | null;
       duplicates: DuplicateReport | null;
+      clusters: ClusterReport | null;
     }
   | { error: string };
 
@@ -42,16 +44,18 @@ async function load(token: string): Promise<Loaded> {
         csvFeedback: EMPTY_FEEDBACK,
         embeddings: null,
         duplicates: null,
+        clusters: null,
       };
     }
-    const [job, feedback, csvFeedback, embeddings, duplicates] = await Promise.all([
+    const [job, feedback, csvFeedback, embeddings, duplicates, clusters] = await Promise.all([
       getCurrentImport(token),
       getFeedback(token, { source: "github_issue", limit: 20 }),
       getFeedback(token, { source: "csv", limit: 50 }),
       getCurrentEmbeddings(token),
       getDuplicates(token),
+      getClusters(token),
     ]);
-    return { me, product, job, feedback, csvFeedback, embeddings, duplicates };
+    return { me, product, job, feedback, csvFeedback, embeddings, duplicates, clusters };
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect("/login?next=/dashboard");
     return { error: error instanceof ApiError ? error.detail.message : "Something went wrong." };
@@ -95,6 +99,7 @@ export default async function DashboardPage() {
           csvFeedback={data.csvFeedback}
           embeddings={data.embeddings}
           duplicates={data.duplicates}
+          clusters={data.clusters}
         />
       ) : (
         <section className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
@@ -116,6 +121,7 @@ function ProductCard({
   csvFeedback,
   embeddings,
   duplicates,
+  clusters,
 }: {
   product: Product;
   job: ImportJob | null;
@@ -123,6 +129,7 @@ function ProductCard({
   csvFeedback: FeedbackPage;
   embeddings: EmbeddingStatus | null;
   duplicates: DuplicateReport | null;
+  clusters: ClusterReport | null;
 }) {
   const repo = product.repository;
   const registered = new Date(product.created_at).toLocaleDateString("en-US", {
@@ -163,6 +170,7 @@ function ProductCard({
       <CsvPanel feedback={csvFeedback} />
       {embeddings ? <EmbeddingPanel status={embeddings} /> : null}
       {duplicates ? <DuplicatePanel report={duplicates} /> : null}
+      {clusters ? <ClusterPanel report={clusters} /> : null}
     </section>
   );
 }
