@@ -199,6 +199,13 @@ export function splitCluster(
   });
 }
 
+export function writeClusterBrief(accessToken: string, clusterId: string): Promise<ClusterReport> {
+  return request(`/v1/feedback/clusters/${clusterId}/brief`, clusterReportSchema, {
+    method: "POST",
+    accessToken,
+  });
+}
+
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {
   return request("/v1/product/github", productSchema, {
     method: "POST",

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import type { ClusterReport } from "@/lib/api/types";
 
-import { decideTheme, findThemes, mergeTheme, nameThemes, renameTheme, splitTheme, type ClusterState } from "./actions";
+import { decideTheme, findThemes, mergeTheme, nameThemes, renameTheme, splitTheme, writeBrief, type ClusterState } from "./actions";
 
 const VISIBLE_THEMES = 8;
 const VISIBLE_MEMBERS = 4;
@@ -69,6 +69,7 @@ function ThemeRow({
         <span className="text-zinc-600 dark:text-zinc-400">{cluster.summary}</span>
       ) : null}
       <span className="text-zinc-500">{scoreLine(cluster.score)}</span>
+      {cluster.brief ? <BriefDetails cluster={cluster} /> : null}
       <span className="text-zinc-800 dark:text-zinc-200">
         {cluster.members
           .slice(0, VISIBLE_MEMBERS)
@@ -79,6 +80,9 @@ function ThemeRow({
       <div className="flex flex-wrap items-start gap-2">
         <DecisionForm clusterId={cluster.id} decision="approve" label="Approve" />
         <DecisionForm clusterId={cluster.id} decision="dismiss" label="Dismiss" />
+        {cluster.status === "approved" ? (
+          <BriefForm clusterId={cluster.id} rewrite={cluster.brief !== null} />
+        ) : null}
         {others.length > 0 ? <MergeForm clusterId={cluster.id} others={others} /> : null}
       </div>
       <SplitForm cluster={cluster} />
@@ -170,6 +174,54 @@ function DecisionForm({
         </p>
       ) : null}
     </form>
+  );
+}
+
+function BriefForm({ clusterId, rewrite }: { clusterId: string; rewrite: boolean }) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState(writeBrief, {});
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) router.refresh();
+    wasPending.current = pending;
+  }, [pending, router]);
+  const label = pending ? "Writing…" : "Write brief";
+  return (
+    <form action={formAction} className="flex items-center gap-2">
+      <input type="hidden" name="clusterId" value={clusterId} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-semibold dark:border-zinc-700"
+      >
+        {rewrite && !pending ? "Rewrite brief" : label}
+      </button>
+      {state.error ? (
+        <p role="alert" className="text-xs text-red-700 dark:text-red-300">
+          {state.error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+function BriefDetails({ cluster }: { cluster: ClusterReport["clusters"][number] }) {
+  const brief = cluster.brief;
+  if (!brief) return null;
+  const cited = new Set(brief.evidence_ids);
+  const titles = cluster.members
+    .filter((member) => cited.has(member.id))
+    .map((member) => member.title);
+  return (
+    <div className="flex flex-col gap-1 text-zinc-600 dark:text-zinc-400">
+      <span>{brief.problem}</span>
+      <span>Impact: {brief.impact}</span>
+      <span>Evidence: {brief.evidence_summary}</span>
+      <span>Non-goals: {brief.non_goals}</span>
+      <span>Acceptance: {brief.acceptance_criteria}</span>
+      <span>Open questions: {brief.open_questions}</span>
+      {titles.length > 0 ? <span>Cited rows: {titles.join(" · ")}</span> : null}
+    </div>
   );
 }
 

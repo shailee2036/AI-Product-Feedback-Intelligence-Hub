@@ -129,6 +129,17 @@ export const clusterReportSchema = z.object({
         named: z.boolean(),
         score: z.number(),
       }),
+      brief: z
+        .object({
+          problem: z.string(),
+          impact: z.string(),
+          evidence_summary: z.string(),
+          non_goals: z.string(),
+          acceptance_criteria: z.string(),
+          open_questions: z.string(),
+          evidence_ids: z.array(z.uuid()),
+        })
+        .nullable(),
       members: z.array(
         z.object({
           id: z.uuid(),
