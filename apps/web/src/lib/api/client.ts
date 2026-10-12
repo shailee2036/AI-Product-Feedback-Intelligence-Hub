@@ -5,6 +5,7 @@ import { getServerEnv } from "@/lib/server-env";
 
 import { ApiError, parseErrorDetail } from "./errors";
 import {
+  auditReportSchema,
   clusterReportSchema,
   csvImportSchema,
   duplicateReportSchema,
@@ -13,6 +14,7 @@ import {
   importSchema,
   meSchema,
   productSchema,
+  type AuditReport,
   type ClusterReport,
   type CsvImport,
   type DuplicateReport,
@@ -57,6 +59,10 @@ async function request<S extends z.ZodType>(
   const payload: unknown = await response.json().catch(() => undefined);
   if (!response.ok) throw new ApiError(response.status, parseErrorDetail(response.status, payload));
   return schema.parse(payload);
+}
+
+export function getAudit(accessToken: string): Promise<AuditReport> {
+  return request("/v1/audit", auditReportSchema, { accessToken });
 }
 
 export function getMe(accessToken: string): Promise<Me> {
