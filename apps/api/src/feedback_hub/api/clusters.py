@@ -54,7 +54,7 @@ from feedback_hub.feedback.canonical import (
     recommend_canonical,
 )
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
-from feedback_hub.feedback.groq import GroqClient, GroqError
+from feedback_hub.feedback.groq import GroqClient, GroqError, generation_key, generation_target
 from feedback_hub.feedback.issue_suggestions import IssueDraft, suggest_issue_update
 from feedback_hub.feedback.new_issues import (
     NewIssueText,
@@ -80,8 +80,8 @@ NO_PRODUCT = "No product registered yet."
 NO_FEEDBACK = "Import feedback before grouping it into themes."
 NO_EMBEDDINGS = "Embed feedback before grouping it into themes."
 NO_CLUSTERS = "Find themes before naming them."
-NO_GROQ = "Add FEEDBACK_HUB_GROQ_API_KEY before naming themes."
-NO_BRIEF = "Add FEEDBACK_HUB_GROQ_API_KEY before writing a brief."
+NO_GROQ = "Add FEEDBACK_HUB_GROQ_API_KEY or a LiteLLM proxy before naming themes."
+NO_BRIEF = "Add FEEDBACK_HUB_GROQ_API_KEY or a LiteLLM proxy before writing a brief."
 NO_THEME = "That theme is no longer available."
 NO_MERGE = "Choose a different theme to merge into."
 NO_SPLIT = "Keep at least one row in the original theme, and move at least one row out."
@@ -97,7 +97,6 @@ NO_GITHUB_WRITE = (
 NO_DRAFT_TEXT = "Write a title and a body before saving the draft."
 NO_BRIEF_YET = "Write a brief before editing it."
 NO_SECTION = "Fill in every section of the brief."
-NAME_PROVIDER = "groq"
 BRIEF_SYSTEM = "You write evidence-linked product briefs. Reply with JSON only."
 
 
@@ -364,7 +363,7 @@ async def name_clusters(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ClusterReport:
     """Name untitled themes from redacted titles. Edited names stay in place."""
-    if settings.groq_api_key is None:
+    if generation_key(settings) is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_GROQ)
     async with database.user_transaction(user) as conn:
         workspace = await ensure_workspace(conn, default_workspace_name(user.email))
@@ -393,9 +392,8 @@ async def name_clusters(
                 for key, (name, summary) in parsed.items()
                 if key in id_map
             ]
-            await save_theme_names(
-                conn, to_save, provider=NAME_PROVIDER, model=settings.groq_theme_model
-            )
+            target = generation_target(settings)
+            await save_theme_names(conn, to_save, provider=target.provider, model=target.model)
             stored = _with_saved_names(stored, to_save)
             await record_audit_event(
                 conn,
@@ -637,7 +635,7 @@ async def write_theme_brief(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ClusterReport:
     """Write an evidence-linked brief for an approved theme. Earlier versions stay stored."""
-    if settings.groq_api_key is None:
+    if generation_key(settings) is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_BRIEF)
     async with database.user_transaction(user) as conn:
         workspace, product, run, items, stored = await _review_context(conn, user)
@@ -660,12 +658,12 @@ async def write_theme_brief(
                 await client.complete(
                     brief_prompt(cluster.name or "Untitled theme", samples),
                     system=BRIEF_SYSTEM,
-                    model=settings.groq_theme_model,
                 ),
                 set(cluster.member_ids),
             )
         except (GroqError, ValueError) as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        target = generation_target(settings)
         await save_product_brief(
             conn,
             cluster_id=cluster.id,
@@ -673,8 +671,8 @@ async def write_theme_brief(
             product_id=product.id,
             brief=parsed,
             source="generated",
-            provider=NAME_PROVIDER,
-            model=settings.groq_theme_model,
+            provider=target.provider,
+            model=target.model,
         )
         await record_audit_event(
             conn,

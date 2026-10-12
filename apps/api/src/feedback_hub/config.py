@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     groq_theme_model: str = "openai/gpt-oss-20b"
     groq_timeout_seconds: float = Field(default=12.0, gt=0)
 
+    litellm_base_url: str | None = None
+    litellm_api_key: SecretStr | None = None
+    litellm_model: str = "theme-writer"
+
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)
     csv_max_feedback_chars: int = Field(default=10_000, gt=0)

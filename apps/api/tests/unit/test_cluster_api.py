@@ -51,6 +51,7 @@ class _Conn:
         self.github_issues: list[dict[str, Any]] = []
         self.suggestions: dict[UUID, dict[str, Any]] = {}
         self.drafts: dict[UUID, dict[str, Any]] = {}
+        self.name_sources: dict[UUID, tuple[str, str]] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -184,6 +185,7 @@ class _Conn:
                 current = self.labels.get(cluster_id, (None, None, False))
                 if current[0] is None and not current[2]:
                     self.labels[cluster_id] = (row["name"], row["summary"], False)
+                    self.name_sources[cluster_id] = (row["provider"], row["model"])
             return _Result()
         if "from public.candidate_clusters" in sql:
             rows: list[_Row] = []
@@ -250,6 +252,8 @@ async def cluster_api(monkeypatch: pytest.MonkeyPatch) -> Any:
         supabase_url=SUPABASE_URL,
         gemini_api_key=None,
         groq_api_key=SecretStr("groq-test-key"),
+        litellm_base_url=None,
+        litellm_api_key=None,
         cluster_similarity_threshold=0.82,
         cluster_neighbor_count=3,
         cluster_minimum_size=3,
@@ -545,6 +549,22 @@ async def test_naming_requires_a_groq_key(cluster_api: Any) -> None:
 
     assert response.status_code == 503
     assert "FEEDBACK_HUB_GROQ_API_KEY" in response.json()["detail"]
+
+
+async def test_naming_through_litellm_records_the_proxy_model(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, _audits, groq, settings = cluster_api
+    settings.groq_api_key = None
+    settings.litellm_base_url = "http://feedback-hub-litellm:4000/v1"
+    settings.litellm_api_key = SecretStr("sk-proxy")
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    await client.post("/v1/feedback/clusters", headers=headers)
+
+    named = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert named.status_code == 200
+    assert named.json()["named_count"] == 1
+    assert len(groq.prompts) == 1
+    assert list(conn.name_sources.values()) == [("litellm", "theme-writer")]
 
 
 async def test_naming_requires_themes(cluster_api: Any) -> None:

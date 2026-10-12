@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
+from pydantic import SecretStr
 
 from feedback_hub.config import Settings
 
@@ -15,10 +16,27 @@ class GroqProviderError(GroqError):
         self.status_code = status_code
 
 
+class GenerationTarget(NamedTuple):
+    provider: str
+    base_url: str
+    model: str
+
+
+def generation_target(settings: Settings) -> GenerationTarget:
+    if settings.litellm_base_url:
+        return GenerationTarget("litellm", settings.litellm_base_url, settings.litellm_model)
+    return GenerationTarget("groq", settings.groq_api_base_url, settings.groq_theme_model)
+
+
+def generation_key(settings: Settings) -> SecretStr | None:
+    return settings.litellm_api_key if settings.litellm_base_url else settings.groq_api_key
+
+
 def build_groq_client(settings: Settings) -> httpx.AsyncClient:
     headers = {"Accept": "application/json"}
-    if settings.groq_api_key is not None:
-        headers["Authorization"] = f"Bearer {settings.groq_api_key.get_secret_value()}"
+    key = generation_key(settings)
+    if key is not None:
+        headers["Authorization"] = f"Bearer {key.get_secret_value()}"
     return httpx.AsyncClient(timeout=settings.groq_timeout_seconds, headers=headers)
 
 
