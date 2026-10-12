@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from feedback_hub.feedback.canonical import IssueSignal
 from feedback_hub.feedback.duplicates import DuplicateLink
 
 
@@ -47,6 +48,46 @@ async def load_feedback_items(conn: AsyncConnection) -> list[DedupeItem]:
         )
     ).all()
     return [DedupeItem(**row._mapping) for row in rows]
+
+
+async def load_github_issue_signals(conn: AsyncConnection) -> list[IssueSignal]:
+    rows = (
+        await conn.execute(
+            text(
+                "select id, github_number, title, state, html_url, comment_count, "
+                "reactions_total, source_updated_at "
+                "from public.feedback_items where source = 'github_issue'"
+            )
+        )
+    ).all()
+    signals: list[IssueSignal] = []
+    for row in rows:
+        mapping = row._mapping
+        number = mapping["github_number"]
+        html_url = mapping["html_url"]
+        state = mapping["state"]
+        updated_at = mapping["source_updated_at"]
+        if (
+            not isinstance(number, int)
+            or not isinstance(html_url, str)
+            or not isinstance(state, str)
+        ):
+            continue
+        if updated_at is not None and not isinstance(updated_at, datetime):
+            continue
+        signals.append(
+            IssueSignal(
+                id=mapping["id"],
+                number=number,
+                title=str(mapping["title"]),
+                state=state,
+                html_url=html_url,
+                comment_count=int(mapping["comment_count"] or 0),
+                reactions_total=int(mapping["reactions_total"] or 0),
+                updated_at=updated_at,
+            )
+        )
+    return signals
 
 
 async def load_embedding_pairs(

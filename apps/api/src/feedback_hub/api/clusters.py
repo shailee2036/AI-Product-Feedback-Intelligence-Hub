@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -36,10 +37,12 @@ from feedback_hub.db.duplicates import (
     load_embedded_item_ids,
     load_embedding_pairs,
     load_feedback_items,
+    load_github_issue_signals,
 )
 from feedback_hub.db.engine import Database, get_database
 from feedback_hub.db.products import RegisteredProduct, get_product
 from feedback_hub.db.workspaces import Workspace, ensure_workspace, record_audit_event
+from feedback_hub.feedback.canonical import IssueSignal, recommend_canonical
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
 from feedback_hub.feedback.groq import GroqClient, GroqError
 from feedback_hub.feedback.normalize import prepare_text
@@ -91,6 +94,29 @@ class ClusterScore(BaseModel):
     score: float
 
 
+class CanonicalIssue(BaseModel):
+    id: UUID
+    number: int
+    title: str
+    html_url: str
+    state: Literal["open", "closed"]
+    comment_count: int
+    reactions_total: int
+    coverage: float
+    recent: bool
+    recent_days: int
+    score: float
+
+
+class DuplicateWarning(BaseModel):
+    id: UUID
+    number: int
+    title: str
+    html_url: str
+    similarity: float
+    in_theme: bool
+
+
 class BriefVersion(BaseModel):
     version: int
     source: Literal["generated", "edited"]
@@ -119,6 +145,8 @@ class ClusterGroup(BaseModel):
     members: list[ClusterMember]
     score: ClusterScore
     brief: ClusterBrief | None
+    canonical: CanonicalIssue | None
+    duplicate_warnings: list[DuplicateWarning]
 
 
 class ClusterEvaluation(BaseModel):
@@ -209,17 +237,20 @@ async def find_clusters(
             model_version=settings.gemini_embedding_version,
         )
         stored = await load_stored_clusters(conn)
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
         report = _report(
             items,
             stored,
             threshold=settings.cluster_similarity_threshold,
             neighbor_count=settings.cluster_neighbor_count,
             minimum_size=settings.cluster_minimum_size,
-            edges=edges,
-            embedded=embedded,
-            briefs=briefs,
-            history=history,
+            edges=loaded.edges,
+            embedded=loaded.embedded,
+            briefs=loaded.briefs,
+            history=loaded.history,
+            issues=loaded.issues,
+            pairs=loaded.pairs,
+            duplicate_threshold=settings.duplicate_similarity_threshold,
         )
         await record_audit_event(
             conn,
@@ -249,17 +280,20 @@ async def read_clusters(
             return ClusterReport.idle(settings)
         items = await load_feedback_items(conn)
         stored = await load_stored_clusters(conn)
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -313,17 +347,20 @@ async def name_clusters(
                 target_id=str(product.id),
                 metadata={"named_count": len(to_save)},
             )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -372,17 +409,20 @@ async def relabel_theme(
             target_id=str(cluster_id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -411,17 +451,20 @@ async def decide_theme(
             target_id=str(cluster_id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -453,17 +496,20 @@ async def merge_theme(
             target_id=str(body.target_id),
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -496,17 +542,20 @@ async def split_theme(
             target_id=str(created),
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -567,17 +616,20 @@ async def write_theme_brief(
             target_id=str(cluster.id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -643,17 +695,20 @@ async def edit_theme_brief(
             target_id=str(cluster.id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+        loaded = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
-        edges=edges,
-        embedded=embedded,
-        briefs=briefs,
-        history=history,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
     )
 
 
@@ -732,6 +787,9 @@ def _report(
     embedded: set[UUID],
     briefs: dict[UUID, StoredBrief],
     history: dict[UUID, list[StoredVersion]],
+    issues: dict[UUID, IssueSignal],
+    pairs: list[tuple[UUID, UUID, float]],
+    duplicate_threshold: float,
     now: datetime | None = None,
 ) -> ClusterReport:
     by_id = {item.id: item for item in items}
@@ -745,6 +803,14 @@ def _report(
         members.sort(key=lambda member: member.title.casefold())
         if not members:
             continue
+        member_ids = tuple(member.id for member in members)
+        canonical, warnings = _canonical_issue(
+            member_ids,
+            issues=issues,
+            pairs=pairs,
+            now=moment,
+            duplicate_threshold=duplicate_threshold,
+        )
         clusters.append(
             ClusterGroup(
                 id=cluster.id,
@@ -753,7 +819,7 @@ def _report(
                 status=cluster.status,
                 members=members,
                 score=_cluster_score(
-                    tuple(member.id for member in members),
+                    member_ids,
                     facts=facts,
                     embedded=embedded,
                     edges=edges,
@@ -762,9 +828,11 @@ def _report(
                 ),
                 brief=_public_brief(
                     briefs.get(cluster.id),
-                    {member.id for member in members},
+                    set(member_ids),
                     history.get(cluster.id, []),
                 ),
+                canonical=canonical,
+                duplicate_warnings=warnings,
             )
         )
     identities = [(str(item.id), item.external_id) for item in items]
@@ -813,14 +881,17 @@ def _cluster_score(
     )
 
 
-async def _report_inputs(
-    conn: AsyncConnection, settings: Settings
-) -> tuple[
-    list[tuple[UUID, UUID]],
-    set[UUID],
-    dict[UUID, StoredBrief],
-    dict[UUID, list[StoredVersion]],
-]:
+@dataclass(frozen=True, slots=True)
+class _ReportInputs:
+    edges: list[tuple[UUID, UUID]]
+    embedded: set[UUID]
+    briefs: dict[UUID, StoredBrief]
+    history: dict[UUID, list[StoredVersion]]
+    issues: dict[UUID, IssueSignal]
+    pairs: list[tuple[UUID, UUID, float]]
+
+
+async def _report_inputs(conn: AsyncConnection, settings: Settings) -> _ReportInputs:
     edges = [(edge.left_item_id, edge.right_item_id) for edge in await load_duplicate_edges(conn)]
     embedded = set(
         await load_embedded_item_ids(
@@ -834,7 +905,58 @@ async def _report_inputs(
     history: dict[UUID, list[StoredVersion]] = {}
     for version in await load_brief_versions(conn):
         history.setdefault(version.cluster_id, []).append(version)
-    return edges, embedded, briefs, history
+    issues = {issue.id: issue for issue in await load_github_issue_signals(conn)}
+    pairs = await load_embedding_pairs(
+        conn,
+        provider=PROVIDER,
+        model=settings.gemini_embedding_model,
+        model_version=settings.gemini_embedding_version,
+    )
+    return _ReportInputs(edges, embedded, briefs, history, issues, pairs)
+
+
+def _canonical_issue(
+    member_ids: tuple[UUID, ...],
+    *,
+    issues: dict[UUID, IssueSignal],
+    pairs: list[tuple[UUID, UUID, float]],
+    now: datetime,
+    duplicate_threshold: float,
+) -> tuple[CanonicalIssue | None, list[DuplicateWarning]]:
+    pick, warnings = recommend_canonical(
+        member_ids,
+        issues,
+        pairs,
+        now=now,
+        duplicate_threshold=duplicate_threshold,
+    )
+    canonical = None
+    if pick is not None:
+        state: Literal["open", "closed"] = "open" if pick.issue.state == "open" else "closed"
+        canonical = CanonicalIssue(
+            id=pick.issue.id,
+            number=pick.issue.number,
+            title=pick.issue.title,
+            html_url=pick.issue.html_url,
+            state=state,
+            comment_count=pick.issue.comment_count,
+            reactions_total=pick.issue.reactions_total,
+            coverage=pick.coverage,
+            recent=pick.recent,
+            recent_days=pick.recent_days,
+            score=pick.score,
+        )
+    return canonical, [
+        DuplicateWarning(
+            id=warning.issue.id,
+            number=warning.issue.number,
+            title=warning.issue.title,
+            html_url=warning.issue.html_url,
+            similarity=warning.similarity,
+            in_theme=warning.in_theme,
+        )
+        for warning in warnings
+    ]
 
 
 def _public_brief(
