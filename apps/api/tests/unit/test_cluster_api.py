@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -45,6 +46,7 @@ class _Conn:
         self.clusters: list[tuple[UUID, list[UUID]]] = []
         self.labels: dict[UUID, tuple[str | None, str | None, bool]] = {}
         self.status: dict[UUID, str] = {}
+        self.briefs: dict[UUID, dict[str, Any]] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -54,6 +56,12 @@ class _Conn:
         if sql.startswith("select feedback_item_id from public.feedback_embeddings"):
             return _Result([_Row(feedback_item_id=item["id"]) for item in self.items])
         if "from public.duplicate_edges" in sql:
+            return _Result()
+        if "from public.product_briefs" in sql:
+            return _Result([_Row(**row) for row in self.briefs.values()])
+        if sql.startswith("insert into public.product_briefs") and isinstance(params, dict):
+            cluster_id = params["cluster_id"]
+            self.briefs[cluster_id] = params
             return _Result()
         if "from public.feedback_embeddings" in sql:
             return _Result(
@@ -245,11 +253,14 @@ async def cluster_api(monkeypatch: pytest.MonkeyPatch) -> Any:
         def __init__(self) -> None:
             self.prompts: list[str] = []
             self.fail: Exception | None = None
+            self.reply: str | None = None
 
-        async def complete(self, prompt: str) -> str:
+        async def complete(self, prompt: str, **_kwargs: object) -> str:
             self.prompts.append(prompt)
             if self.fail is not None:
                 raise self.fail
+            if self.reply is not None:
+                return self.reply
             return (
                 '{"themes":[{"id":"1","name":"Import progress",'
                 '"summary":"People want import progress and rejected rows."}]}'
@@ -455,3 +466,46 @@ async def test_an_approved_theme_survives_the_next_clustering_run(cluster_api: A
     assert again.json()["clusters"][0]["id"] == cluster_id
     assert again.json()["clusters"][0]["status"] == "approved"
     assert conn.status[conn.clusters[0][0]] == "approved"
+
+
+def _brief_json(evidence_ids: list[str]) -> str:
+    return json.dumps(
+        {
+            "problem": "Imports hide progress.",
+            "user_impact": "People cannot tell whether a large import is stuck.",
+            "evidence_summary": "Several rows ask for progress and rejected rows.",
+            "non_goals": "Do not change the import file format.",
+            "acceptance_criteria": "A running import shows progress.",
+            "open_questions": "Should rejected rows be downloadable?",
+            "evidence_ids": evidence_ids,
+        }
+    )
+
+
+async def test_a_brief_keeps_only_rows_from_an_approved_theme(cluster_api: Any) -> None:
+    client, tokens, _conn, _holder, audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    created = await client.post("/v1/feedback/clusters", headers=headers)
+    cluster = created.json()["clusters"][0]
+    cluster_id = cluster["id"]
+    member_id = cluster["members"][0]["id"]
+
+    refused = await client.post(f"/v1/feedback/clusters/{cluster_id}/brief", headers=headers)
+    approved = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+    groq.reply = _brief_json([str(uuid4())])
+    missed = await client.post(f"/v1/feedback/clusters/{cluster_id}/brief", headers=headers)
+    groq.reply = _brief_json([member_id, str(uuid4())])
+    written = await client.post(f"/v1/feedback/clusters/{cluster_id}/brief", headers=headers)
+
+    assert refused.status_code == 409
+    assert approved.status_code == 200
+    assert missed.status_code == 502
+    assert written.status_code == 200
+    brief = written.json()["clusters"][0]["brief"]
+    assert brief["problem"] == "Imports hide progress."
+    assert brief["evidence_ids"] == [member_id]
+    assert audits[-1]["action"] == "cluster.briefed"

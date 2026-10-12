@@ -57,33 +57,42 @@ async def test_clustering_groups_close_vectors(
     github: respx.Router,
     database_url: str,
 ) -> None:
-    github.post("https://api.groq.com/openai/v1/chat/completions").respond(
-        200,
-        json={
-            "choices": [
+    def groq_reply(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        user = payload["messages"][-1]["content"]
+        if "Write a product brief" in user:
+            cited = user.split("- ", 1)[1].split(" ", 1)[0]
+            content = json.dumps(
                 {
-                    "message": {
-                        "content": json.dumps(
-                            {
-                                "themes": [
-                                    {
-                                        "id": "1",
-                                        "name": "Import progress",
-                                        "summary": "People want import progress and rejected rows.",
-                                    },
-                                    {
-                                        "id": "2",
-                                        "name": "Reconnect warning",
-                                        "summary": "People want a warning after reconnect.",
-                                    },
-                                ]
-                            }
-                        )
-                    }
+                    "problem": "Imports hide progress.",
+                    "user_impact": "People cannot tell whether a large import is stuck.",
+                    "evidence_summary": "Several rows ask for progress and rejected rows.",
+                    "non_goals": "Do not change the import file format.",
+                    "acceptance_criteria": "A running import shows progress.",
+                    "open_questions": "Should rejected rows be downloadable?",
+                    "evidence_ids": [cited],
                 }
-            ]
-        },
-    )
+            )
+        else:
+            content = json.dumps(
+                {
+                    "themes": [
+                        {
+                            "id": "1",
+                            "name": "Import progress",
+                            "summary": "People want import progress and rejected rows.",
+                        },
+                        {
+                            "id": "2",
+                            "name": "Reconnect warning",
+                            "summary": "People want a warning after reconnect.",
+                        },
+                    ]
+                }
+            )
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    github.post("https://api.groq.com/openai/v1/chat/completions").mock(side_effect=groq_reply)
     headers = bearer(tokens.token(await create_user("themes-rows@example.com")))
     created = await api.post(
         "/v1/product/github", json={"repository": "appwrite/appwrite"}, headers=headers
@@ -192,12 +201,27 @@ async def test_clustering_groups_close_vectors(
         json={"decision": "approve"},
     )
     assert approved.status_code == 200
+    open_theme_before = next(
+        theme for theme in approved.json()["clusters"] if theme["status"] == "open"
+    )
+    refused = await api.post(
+        f"/v1/feedback/clusters/{open_theme_before['id']}/brief", headers=headers
+    )
+    assert refused.status_code == 409
+    briefed = await api.post(f"/v1/feedback/clusters/{import_theme['id']}/brief", headers=headers)
+    assert briefed.status_code == 200, briefed.text
+    written = next(
+        theme for theme in briefed.json()["clusters"] if theme["id"] == import_theme["id"]
+    )
+    assert written["brief"]["problem"] == "Imports hide progress."
+    assert written["brief"]["evidence_ids"]
 
     refound = await api.post("/v1/feedback/clusters", headers=headers)
     assert refound.status_code == 200, refound.text
     kept = next(theme for theme in refound.json()["clusters"] if theme["id"] == import_theme["id"])
     assert kept["status"] == "approved"
     assert kept["name"] == "Import status"
+    assert kept["brief"]["problem"] == "Imports hide progress."
     open_theme = next(theme for theme in refound.json()["clusters"] if theme["status"] == "open")
     split = await api.post(
         f"/v1/feedback/clusters/{open_theme['id']}/split",

@@ -22,24 +22,26 @@ def build_groq_client(settings: Settings) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=settings.groq_timeout_seconds, headers=headers)
 
 
+NAMING_SYSTEM = "You name product feedback themes. Reply with JSON only."
+
+
 class GroqClient:
     def __init__(self, http: httpx.AsyncClient, *, base_url: str, model: str) -> None:
         self._http = http
         self._url = f"{base_url.rstrip('/')}/chat/completions"
         self._model = model
 
-    async def complete(self, prompt: str) -> str:
+    async def complete(
+        self, prompt: str, *, system: str | None = None, model: str | None = None
+    ) -> str:
         body = {
-            "model": self._model,
+            "model": model or self._model,
             "temperature": 0.2,
             "max_tokens": 2048,
             "reasoning_effort": "low",
             "response_format": {"type": "json_object"},
             "messages": [
-                {
-                    "role": "system",
-                    "content": "You name product feedback themes. Reply with JSON only.",
-                },
+                {"role": "system", "content": system or NAMING_SYSTEM},
                 {"role": "user", "content": prompt},
             ],
         }
