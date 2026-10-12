@@ -103,6 +103,7 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/feedback/clusters/{cluster_id}/merge` | user | Move a theme's rows into another theme |
 | POST | `/v1/feedback/clusters/{cluster_id}/split` | user | Move selected rows into a new theme |
 | POST | `/v1/feedback/clusters/{cluster_id}/brief` | user | Write an evidence-linked brief for an approved theme |
+| PATCH | `/v1/feedback/clusters/{cluster_id}/brief` | user | Save an edited brief and keep earlier versions |
 
 Exact duplicates share a hash of the redacted text. Semantic duplicates are mutual nearest
 neighbors with cosine similarity of at least 0.86. A starter set of labeled seed pairs is scored
@@ -119,7 +120,7 @@ in the last 90 days, source mix (one source is 0.5 and two or more is 1), volume
 rows inside the theme are counted once, and completeness (a stored name plus the share of rows
 with an embedding). The score is not asked of a model. An approved theme can get a product
 brief from up to six redacted titles. The brief cites only rows in that theme, and writing it
-again replaces the stored brief. Feedback bodies stay in the database.
+again replaces the current text and keeps every earlier version. Feedback bodies stay in the database.
 
 Validate the seed fixtures:
 
