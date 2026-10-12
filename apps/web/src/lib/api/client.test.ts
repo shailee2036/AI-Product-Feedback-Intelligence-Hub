@@ -11,6 +11,7 @@ import {
   getFeedback,
   getMe,
   getProduct,
+  nameClusters,
   registerGithubProduct,
   startEmbeddings,
   startIssueImport,
@@ -282,9 +283,12 @@ describe("API client", () => {
       threshold: 0.82,
       neighbor_count: 3,
       minimum_size: 3,
+      named_count: 1,
       clusters: [
         {
           id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+          name: "Import progress",
+          summary: "People want import progress.",
           members: [
             {
               id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
@@ -305,8 +309,15 @@ describe("API client", () => {
 
     expect(found.cluster_count).toBe(2);
     expect(current.evaluation?.gathered).toBe(4);
+    expect(current.clusters[0]?.name).toBe("Import progress");
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/clusters");
     expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+    const named = await nameClusters("t");
+    expect(named.named_count).toBe(1);
+    expect(String(fetchMock.mock.calls[2][0])).toBe("http://api.test/v1/feedback/clusters/names");
+    expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
   });
 
   it("rejects responses that do not match the contract", async () => {

@@ -111,9 +111,12 @@ export const clusterReportSchema = z.object({
   threshold: z.number(),
   neighbor_count: z.number(),
   minimum_size: z.number(),
+  named_count: z.number(),
   clusters: z.array(
     z.object({
       id: z.uuid(),
+      name: z.string().nullable(),
+      summary: z.string().nullable(),
       members: z.array(
         z.object({
           id: z.uuid(),

@@ -143,6 +143,13 @@ export function getClusters(accessToken: string): Promise<ClusterReport> {
   return request("/v1/feedback/clusters", clusterReportSchema, { accessToken });
 }
 
+export function nameClusters(accessToken: string): Promise<ClusterReport> {
+  return request("/v1/feedback/clusters/names", clusterReportSchema, {
+    method: "POST",
+    accessToken,
+  });
+}
+
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {
   return request("/v1/product/github", productSchema, {
     method: "POST",

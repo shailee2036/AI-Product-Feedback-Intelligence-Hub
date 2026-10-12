@@ -7,6 +7,7 @@ import {
   cancelIssueImport,
   findClusters,
   findDuplicates,
+  nameClusters,
   registerGithubProduct,
   startEmbeddings,
   startIssueImport,
@@ -76,6 +77,20 @@ export type EmbeddingState = { error?: string };
 export type DuplicateState = { error?: string };
 
 export type ClusterState = { error?: string };
+
+export async function nameThemes(): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  try {
+    await nameClusters(token);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.status === 404) return { error: "Register a repository before naming themes." };
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
 
 export async function findThemes(): Promise<ClusterState> {
   const token = await getVerifiedAccessToken();
