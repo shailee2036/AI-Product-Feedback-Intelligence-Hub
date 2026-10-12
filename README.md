@@ -63,7 +63,9 @@ The local command needs Docker, Helm, kind, and kubectl.
 
 The chart in `deploy/charts/litellm` runs the LiteLLM proxy on CPU from a pinned non-root image. It routes `theme-writer` to Groq `openai/gpt-oss-20b`, refuses requests above the free-plan limits of 30 per minute and 8,000 tokens per minute, uses a 12-second timeout, and does not retry. Only pods labeled `app.kubernetes.io/name: feedback-hub-api` can reach it.
 
-Create a Secret named `feedback-hub-litellm` with `GROQ_API_KEY` and `LITELLM_MASTER_KEY` (starting with `sk-`) before installing. The chart does not contain either value. The API still calls Groq directly; switching it to the proxy is a separate change.
+Create a Secret named `feedback-hub-litellm` with `GROQ_API_KEY` and `LITELLM_MASTER_KEY` (starting with `sk-`) before installing. The chart does not contain either value.
+
+The API calls Groq directly unless `FEEDBACK_HUB_LITELLM_BASE_URL` is set. With the URL set, theme names and briefs go through the proxy using `FEEDBACK_HUB_LITELLM_API_KEY` (the master key) and the `theme-writer` alias, and the saved provider and model are `litellm` and `theme-writer`. In the API chart, set `litellmBaseUrl=http://feedback-hub-litellm:4000/v1` and add `FEEDBACK_HUB_LITELLM_API_KEY` to the `feedback-hub-api` Secret.
 
 ```bash
 helm lint deploy/charts/litellm
