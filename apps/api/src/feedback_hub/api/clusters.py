@@ -41,10 +41,16 @@ from feedback_hub.db.duplicates import (
 )
 from feedback_hub.db.engine import Database, get_database
 from feedback_hub.db.products import RegisteredProduct, get_product
+from feedback_hub.db.suggestions import (
+    StoredSuggestion,
+    load_issue_suggestions,
+    save_issue_suggestion,
+)
 from feedback_hub.db.workspaces import Workspace, ensure_workspace, record_audit_event
 from feedback_hub.feedback.canonical import IssueSignal, recommend_canonical
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
 from feedback_hub.feedback.groq import GroqClient, GroqError
+from feedback_hub.feedback.issue_suggestions import IssueDraft, suggest_issue_update
 from feedback_hub.feedback.normalize import prepare_text
 from feedback_hub.feedback.theme_briefs import (
     brief_from_edit,
@@ -70,6 +76,8 @@ NO_MERGE = "Choose a different theme to merge into."
 NO_SPLIT = "Keep at least one row in the original theme, and move at least one row out."
 NO_NAME = "Enter a theme name."
 NO_APPROVED = "Approve the theme before writing a brief."
+NO_CANONICAL = "No imported GitHub issue is available for this theme."
+NO_SUGGESTION = "Approve the theme before saving a suggestion."
 NO_BRIEF_YET = "Write a brief before editing it."
 NO_SECTION = "Fill in every section of the brief."
 NAME_PROVIDER = "groq"
@@ -117,6 +125,12 @@ class DuplicateWarning(BaseModel):
     in_theme: bool
 
 
+class IssueSuggestion(BaseModel):
+    comment: str
+    labels: list[str]
+    saved: bool
+
+
 class BriefVersion(BaseModel):
     version: int
     source: Literal["generated", "edited"]
@@ -147,6 +161,7 @@ class ClusterGroup(BaseModel):
     brief: ClusterBrief | None
     canonical: CanonicalIssue | None
     duplicate_warnings: list[DuplicateWarning]
+    suggestion: IssueSuggestion | None
 
 
 class ClusterEvaluation(BaseModel):
@@ -251,6 +266,7 @@ async def find_clusters(
             issues=loaded.issues,
             pairs=loaded.pairs,
             duplicate_threshold=settings.duplicate_similarity_threshold,
+            suggestions=loaded.suggestions,
         )
         await record_audit_event(
             conn,
@@ -294,6 +310,7 @@ async def read_clusters(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -361,6 +378,7 @@ async def name_clusters(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -423,6 +441,7 @@ async def relabel_theme(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -465,6 +484,7 @@ async def decide_theme(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -510,6 +530,7 @@ async def merge_theme(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -556,6 +577,7 @@ async def split_theme(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -630,6 +652,7 @@ async def write_theme_brief(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -709,6 +732,71 @@ async def edit_theme_brief(
         issues=loaded.issues,
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
+    )
+
+
+@router.post("/v1/feedback/clusters/{cluster_id}/suggestion", response_model=ClusterReport)
+async def save_theme_suggestion(
+    cluster_id: UUID,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Store the suggested comment locally. Nothing is posted to GitHub."""
+    async with database.user_transaction(user) as conn:
+        workspace, product, run, items, stored = await _review_context(conn, user)
+        cluster = _find_cluster(stored, cluster_id)
+        if cluster is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+        if cluster.status != "approved":
+            raise HTTPException(status.HTTP_409_CONFLICT, NO_SUGGESTION)
+        loaded = await _report_inputs(conn, settings)
+        by_id = {item.id: item for item in items}
+        member_ids = tuple(member_id for member_id in cluster.member_ids if member_id in by_id)
+        canonical, _warnings = _canonical_issue(
+            member_ids,
+            issues=loaded.issues,
+            pairs=loaded.pairs,
+            now=datetime.now(UTC),
+            duplicate_threshold=settings.duplicate_similarity_threshold,
+        )
+        if canonical is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, NO_CANONICAL)
+        draft = _issue_draft(cluster, by_id, canonical, loaded.briefs.get(cluster.id))
+        await save_issue_suggestion(
+            conn,
+            cluster_id=cluster.id,
+            tenant_id=workspace.tenant_id,
+            product_id=product.id,
+            feedback_item_id=canonical.id,
+            comment=draft.comment,
+            labels=draft.labels,
+        )
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.suggestion_saved",
+            target_type="candidate_cluster",
+            target_id=str(cluster.id),
+            metadata={"product_id": str(product.id), "feedback_item_id": str(canonical.id)},
+        )
+        loaded = await _report_inputs(conn, settings)
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
     )
 
 
@@ -790,6 +878,7 @@ def _report(
     issues: dict[UUID, IssueSignal],
     pairs: list[tuple[UUID, UUID, float]],
     duplicate_threshold: float,
+    suggestions: dict[UUID, StoredSuggestion],
     now: datetime | None = None,
 ) -> ClusterReport:
     by_id = {item.id: item for item in items}
@@ -811,6 +900,8 @@ def _report(
             now=moment,
             duplicate_threshold=duplicate_threshold,
         )
+        stored_brief = briefs.get(cluster.id)
+        draft = None if canonical is None else _issue_draft(cluster, by_id, canonical, stored_brief)
         clusters.append(
             ClusterGroup(
                 id=cluster.id,
@@ -833,6 +924,9 @@ def _report(
                 ),
                 canonical=canonical,
                 duplicate_warnings=warnings,
+                suggestion=None
+                if draft is None or canonical is None
+                else _public_suggestion(draft, suggestions.get(cluster.id), canonical.id),
             )
         )
     identities = [(str(item.id), item.external_id) for item in items]
@@ -889,6 +983,7 @@ class _ReportInputs:
     history: dict[UUID, list[StoredVersion]]
     issues: dict[UUID, IssueSignal]
     pairs: list[tuple[UUID, UUID, float]]
+    suggestions: dict[UUID, StoredSuggestion]
 
 
 async def _report_inputs(conn: AsyncConnection, settings: Settings) -> _ReportInputs:
@@ -906,13 +1001,46 @@ async def _report_inputs(conn: AsyncConnection, settings: Settings) -> _ReportIn
     for version in await load_brief_versions(conn):
         history.setdefault(version.cluster_id, []).append(version)
     issues = {issue.id: issue for issue in await load_github_issue_signals(conn)}
+    suggestions = {
+        suggestion.cluster_id: suggestion for suggestion in await load_issue_suggestions(conn)
+    }
     pairs = await load_embedding_pairs(
         conn,
         provider=PROVIDER,
         model=settings.gemini_embedding_model,
         model_version=settings.gemini_embedding_version,
     )
-    return _ReportInputs(edges, embedded, briefs, history, issues, pairs)
+    return _ReportInputs(edges, embedded, briefs, history, issues, pairs, suggestions)
+
+
+def _issue_draft(
+    cluster: StoredCluster,
+    by_id: dict[UUID, DedupeItem],
+    canonical: CanonicalIssue,
+    brief: StoredBrief | None,
+) -> IssueDraft:
+    rows = [by_id[member_id] for member_id in cluster.member_ids if member_id in by_id]
+    return suggest_issue_update(
+        number=canonical.number,
+        theme_name=cluster.name,
+        theme_summary=cluster.summary,
+        brief_problem=None if brief is None else brief.problem,
+        brief_evidence=None if brief is None else brief.evidence_summary,
+        reports=[row.title for row in rows if row.id != canonical.id and row.source == "csv"],
+        areas=[row.product_area for row in rows],
+    )
+
+
+def _public_suggestion(
+    draft: IssueDraft, stored: StoredSuggestion | None, issue_id: UUID
+) -> IssueSuggestion:
+    saved = (
+        stored is not None
+        and stored.feedback_item_id == issue_id
+        and stored.comment == draft.comment
+        and stored.labels == draft.labels
+    )
+    return IssueSuggestion(comment=draft.comment, labels=list(draft.labels), saved=saved)
 
 
 def _canonical_issue(
