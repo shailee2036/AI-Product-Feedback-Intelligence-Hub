@@ -2,24 +2,33 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from feedback_hub.api.me import default_workspace_name
 from feedback_hub.auth import CurrentUser
 from feedback_hub.config import Settings, get_settings
 from feedback_hub.db.clusters import (
+    AnalysisRun,
+    ClusterStatus,
     StoredCluster,
     latest_analysis_run,
     load_stored_clusters,
+    merge_cluster_members,
+    partition_members,
+    relabel_cluster,
     replace_candidate_clusters,
     save_theme_names,
+    set_cluster_status,
+    split_cluster_members,
 )
 from feedback_hub.db.duplicates import DedupeItem, load_embedding_pairs, load_feedback_items
 from feedback_hub.db.engine import Database, get_database
-from feedback_hub.db.products import get_product
-from feedback_hub.db.workspaces import ensure_workspace, record_audit_event
+from feedback_hub.db.products import RegisteredProduct, get_product
+from feedback_hub.db.workspaces import Workspace, ensure_workspace, record_audit_event
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
 from feedback_hub.feedback.groq import GroqClient, GroqError
+from feedback_hub.feedback.normalize import prepare_text
 from feedback_hub.feedback.theme_names import naming_prompt, parse_theme_names, representative_lines
 
 router = APIRouter(tags=["clusters"])
@@ -31,6 +40,10 @@ NO_FEEDBACK = "Import feedback before grouping it into themes."
 NO_EMBEDDINGS = "Embed feedback before grouping it into themes."
 NO_CLUSTERS = "Find themes before naming them."
 NO_GROQ = "Add FEEDBACK_HUB_GROQ_API_KEY before naming themes."
+NO_THEME = "That theme is no longer available."
+NO_MERGE = "Choose a different theme to merge into."
+NO_SPLIT = "Keep at least one row in the original theme, and move at least one row out."
+NO_NAME = "Enter a theme name."
 NAME_PROVIDER = "groq"
 
 
@@ -45,6 +58,7 @@ class ClusterGroup(BaseModel):
     id: UUID
     name: str | None
     summary: str | None
+    status: ClusterStatus
     members: list[ClusterMember]
 
 
@@ -62,6 +76,7 @@ class ClusterReport(BaseModel):
     neighbor_count: int
     minimum_size: int
     named_count: int
+    approved_count: int
     clusters: list[ClusterGroup]
     evaluation: ClusterEvaluation | None
 
@@ -75,6 +90,7 @@ class ClusterReport(BaseModel):
             neighbor_count=settings.cluster_neighbor_count,
             minimum_size=settings.cluster_minimum_size,
             named_count=0,
+            approved_count=0,
             clusters=[],
             evaluation=None,
         )
@@ -103,13 +119,25 @@ async def find_clusters(
         )
         if not pairs:
             raise HTTPException(status.HTTP_409_CONFLICT, NO_EMBEDDINGS)
+        existing = await load_stored_clusters(conn)
+        approved_ids = {
+            member_id
+            for cluster in existing
+            if cluster.status == "approved"
+            for member_id in cluster.member_ids
+        }
+        open_pairs = [
+            (left, right, score)
+            for left, right, score in pairs
+            if left not in approved_ids and right not in approved_ids
+        ]
         groups = theme_groups(
-            [(str(left), str(right), score) for left, right, score in pairs],
+            [(str(left), str(right), score) for left, right, score in open_pairs],
             threshold=settings.cluster_similarity_threshold,
             neighbors=settings.cluster_neighbor_count,
             minimum_size=settings.cluster_minimum_size,
         )
-        stored = await replace_candidate_clusters(
+        await replace_candidate_clusters(
             conn,
             tenant_id=workspace.tenant_id,
             product_id=product.id,
@@ -121,18 +149,10 @@ async def find_clusters(
             model=settings.gemini_embedding_model,
             model_version=settings.gemini_embedding_version,
         )
+        stored = await load_stored_clusters(conn)
         report = _report(
             items,
-            [
-                StoredCluster(
-                    id=cluster_id,
-                    name=None,
-                    summary=None,
-                    name_edited=False,
-                    member_ids=tuple(member_ids),
-                )
-                for cluster_id, member_ids in stored
-            ],
+            stored,
             threshold=settings.cluster_similarity_threshold,
             neighbor_count=settings.cluster_neighbor_count,
             minimum_size=settings.cluster_minimum_size,
@@ -195,7 +215,9 @@ async def name_clusters(
         items = await load_feedback_items(conn)
         stored = await load_stored_clusters(conn)
         unnamed = [
-            cluster for cluster in stored if cluster.name is None and not cluster.name_edited
+            cluster
+            for cluster in stored
+            if cluster.status == "open" and cluster.name is None and not cluster.name_edited
         ]
         themes, id_map = _naming_inputs(items, unnamed)
         if themes:
@@ -229,6 +251,192 @@ async def name_clusters(
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
     )
+
+
+class ThemeLabel(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    summary: str = Field(default="", max_length=400)
+
+
+class ThemeDecisionBody(BaseModel):
+    decision: Literal["approve", "dismiss"]
+
+
+class ThemeMergeBody(BaseModel):
+    target_id: UUID
+
+
+class ThemeSplitBody(BaseModel):
+    member_ids: list[UUID] = Field(min_length=1)
+
+
+@router.patch("/v1/feedback/clusters/{cluster_id}", response_model=ClusterReport)
+async def relabel_theme(
+    cluster_id: UUID,
+    body: ThemeLabel,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Save a name a person wrote. Later naming runs leave it alone."""
+    name = _clean_label(body.name, 80)
+    summary = _clean_label(body.summary, 400) or None
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NO_NAME)
+    async with database.user_transaction(user) as conn:
+        workspace, product, run, items, stored = await _review_context(conn, user)
+        if _find_cluster(stored, cluster_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+        await relabel_cluster(conn, cluster_id, name=name, summary=summary)
+        stored = await load_stored_clusters(conn)
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.relabeled",
+            target_type="candidate_cluster",
+            target_id=str(cluster_id),
+            metadata={"product_id": str(product.id)},
+        )
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+    )
+
+
+@router.post("/v1/feedback/clusters/{cluster_id}/decision", response_model=ClusterReport)
+async def decide_theme(
+    cluster_id: UUID,
+    body: ThemeDecisionBody,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Approve a theme so the next clustering run keeps it, or dismiss it."""
+    next_status: ClusterStatus = "approved" if body.decision == "approve" else "dismissed"
+    async with database.user_transaction(user) as conn:
+        workspace, product, run, items, stored = await _review_context(conn, user)
+        if _find_cluster(stored, cluster_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+        await set_cluster_status(conn, cluster_id, next_status)
+        stored = await load_stored_clusters(conn)
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.approved" if next_status == "approved" else "cluster.dismissed",
+            target_type="candidate_cluster",
+            target_id=str(cluster_id),
+            metadata={"product_id": str(product.id)},
+        )
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+    )
+
+
+@router.post("/v1/feedback/clusters/{cluster_id}/merge", response_model=ClusterReport)
+async def merge_theme(
+    cluster_id: UUID,
+    body: ThemeMergeBody,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Move every row from this theme into another theme."""
+    if body.target_id == cluster_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, NO_MERGE)
+    async with database.user_transaction(user) as conn:
+        workspace, product, run, items, stored = await _review_context(conn, user)
+        source = _find_cluster(stored, cluster_id)
+        target = _find_cluster(stored, body.target_id)
+        if source is None or target is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+        await merge_cluster_members(conn, source, target)
+        stored = await load_stored_clusters(conn)
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.merged",
+            target_type="candidate_cluster",
+            target_id=str(body.target_id),
+            metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
+        )
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+    )
+
+
+@router.post("/v1/feedback/clusters/{cluster_id}/split", response_model=ClusterReport)
+async def split_theme(
+    cluster_id: UUID,
+    body: ThemeSplitBody,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Move the selected rows into a new theme and leave the rest in place."""
+    async with database.user_transaction(user) as conn:
+        workspace, product, run, items, stored = await _review_context(conn, user)
+        source = _find_cluster(stored, cluster_id)
+        if source is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+        plan = partition_members(source.member_ids, body.member_ids)
+        if plan is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, NO_SPLIT)
+        _staying, moving = plan
+        created = await split_cluster_members(conn, source, moving)
+        stored = await load_stored_clusters(conn)
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.split",
+            target_type="candidate_cluster",
+            target_id=str(created),
+            metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
+        )
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+    )
+
+
+async def _review_context(
+    conn: AsyncConnection, user: CurrentUser
+) -> tuple[Workspace, RegisteredProduct, AnalysisRun, list[DedupeItem], list[StoredCluster]]:
+    workspace = await ensure_workspace(conn, default_workspace_name(user.email))
+    product = await get_product(conn)
+    if product is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NO_PRODUCT)
+    run = await latest_analysis_run(conn)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+    items = await load_feedback_items(conn)
+    stored = await load_stored_clusters(conn)
+    return workspace, product, run, items, stored
+
+
+def _find_cluster(stored: list[StoredCluster], cluster_id: UUID) -> StoredCluster | None:
+    return next((cluster for cluster in stored if cluster.id == cluster_id), None)
+
+
+def _clean_label(value: str, limit: int) -> str:
+    return prepare_text(value).text[:limit].strip()
 
 
 def _naming_inputs(
@@ -265,6 +473,7 @@ def _with_saved_names(
                 name=name,
                 summary=summary,
                 name_edited=cluster.name_edited,
+                status=cluster.status,
                 member_ids=cluster.member_ids,
             )
         )
@@ -286,10 +495,16 @@ def _report(
             _member(by_id[member_id]) for member_id in cluster.member_ids if member_id in by_id
         ]
         members.sort(key=lambda member: member.title.casefold())
-        if len(members) < minimum_size:
+        if not members:
             continue
         clusters.append(
-            ClusterGroup(id=cluster.id, name=cluster.name, summary=cluster.summary, members=members)
+            ClusterGroup(
+                id=cluster.id,
+                name=cluster.name,
+                summary=cluster.summary,
+                status=cluster.status,
+                members=members,
+            )
         )
     identities = [(str(item.id), item.external_id) for item in items]
     groups = [[str(member_id) for member_id in cluster.member_ids] for cluster in stored]
@@ -302,6 +517,7 @@ def _report(
         neighbor_count=neighbor_count,
         minimum_size=minimum_size,
         named_count=sum(cluster.name is not None for cluster in stored),
+        approved_count=sum(cluster.status == "approved" for cluster in stored),
         clusters=clusters,
         evaluation=None if scored is None else _evaluation(scored),
     )

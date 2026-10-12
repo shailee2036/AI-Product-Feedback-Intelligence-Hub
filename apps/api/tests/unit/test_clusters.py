@@ -1,6 +1,8 @@
 import csv
 from pathlib import Path
+from uuid import uuid4
 
+from feedback_hub.db.clusters import partition_members
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
 
 SEED_CSV = Path(__file__).resolve().parents[4] / "seed-data" / "appwrite-customer-feedback.csv"
@@ -58,3 +60,11 @@ def test_starter_themes_name_rows_in_the_seed_csv() -> None:
         assert len(set(members)) == len(members)
         for external_id in members:
             assert external_id in ids
+
+
+def test_partition_members_keeps_one_row_in_each_theme() -> None:
+    first, second, third = uuid4(), uuid4(), uuid4()
+
+    assert partition_members((first, second, third), [second]) == ((first, third), (second,))
+    assert partition_members((first, second), [first, second]) is None
+    assert partition_members((first, second), [uuid4()]) is None
