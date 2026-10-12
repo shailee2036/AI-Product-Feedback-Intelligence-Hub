@@ -69,6 +69,7 @@ function ThemeRow({
         <span className="text-zinc-600 dark:text-zinc-400">{cluster.summary}</span>
       ) : null}
       <span className="text-zinc-500">{scoreLine(cluster.score)}</span>
+      <CanonicalIssue cluster={cluster} />
       {cluster.brief ? <BriefDetails cluster={cluster} /> : null}
       <span className="text-zinc-800 dark:text-zinc-200">
         {cluster.members
@@ -450,6 +451,83 @@ function describe(report: ClusterReport): string {
     return `${report.cluster_count} themes covering ${report.member_count} rows. Names are still blank.${scores}`;
   }
   return `${report.cluster_count} themes covering ${report.member_count} rows. ${report.named_count} named. ${report.approved_count} approved.${scores}`;
+}
+
+function CanonicalIssue({ cluster }: { cluster: ClusterReport["clusters"][number] }) {
+  const canonical = cluster.canonical;
+  const warnings = cluster.duplicate_warnings;
+  const gap = cluster.status === "approved" && canonical === null && warnings.length === 0;
+  if (!canonical && warnings.length === 0 && !gap) return null;
+  return (
+    <div className="flex flex-col gap-1 text-zinc-600 dark:text-zinc-400">
+      {canonical ? (
+        <span>
+          Canonical issue{" "}
+          <IssueLink href={canonical.html_url} label={`#${canonical.number} ${canonical.title}`} />
+          {` · ${canonicalLine(canonical)}`}
+        </span>
+      ) : (
+        <span>No imported GitHub issue is in this theme.</span>
+      )}
+      {warnings.length > 0 ? (
+        <span>
+          Possible duplicates: <WarningList warnings={warnings} />
+        </span>
+      ) : null}
+      {canonical || warnings.length > 0 ? (
+        <span>Recommendation only. No GitHub issue is created, closed, or commented.</span>
+      ) : null}
+    </div>
+  );
+}
+
+function IssueLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium text-indigo-600 hover:underline"
+    >
+      {label}
+    </a>
+  );
+}
+
+function WarningList({
+  warnings,
+}: {
+  warnings: ClusterReport["clusters"][number]["duplicate_warnings"];
+}) {
+  return (
+    <>
+      {warnings.map((warning, index) => (
+        <span key={warning.id}>
+          {index > 0 ? " · " : null}
+          <IssueLink href={warning.html_url} label={`#${warning.number} ${warning.title}`} />
+          {` (${Math.round(warning.similarity * 100)}% similar, ${
+            warning.in_theme ? "in this theme" : "outside this theme"
+          })`}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function canonicalLine(
+  issue: NonNullable<ClusterReport["clusters"][number]["canonical"]>,
+): string {
+  const updated = issue.recent
+    ? `updated in the last ${issue.recent_days} days`
+    : `not updated in the last ${issue.recent_days} days`;
+  return [
+    issue.state,
+    `score ${Math.round(issue.score * 100)}%`,
+    `coverage ${Math.round(issue.coverage * 100)}%`,
+    `${issue.comment_count} comments`,
+    `${issue.reactions_total} reactions`,
+    updated,
+  ].join(" · ");
 }
 
 function scoreLine(score: ClusterReport["clusters"][number]["score"]): string {

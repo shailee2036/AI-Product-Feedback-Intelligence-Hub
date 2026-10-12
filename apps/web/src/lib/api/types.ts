@@ -150,6 +150,31 @@ export const clusterReportSchema = z.object({
           ),
         })
         .nullable(),
+      canonical: z
+        .object({
+          id: z.uuid(),
+          number: z.number(),
+          title: z.string(),
+          html_url: z.string(),
+          state: z.enum(["open", "closed"]),
+          comment_count: z.number(),
+          reactions_total: z.number(),
+          coverage: z.number(),
+          recent: z.boolean(),
+          recent_days: z.number(),
+          score: z.number(),
+        })
+        .nullable(),
+      duplicate_warnings: z.array(
+        z.object({
+          id: z.uuid(),
+          number: z.number(),
+          title: z.string(),
+          html_url: z.string(),
+          similarity: z.number(),
+          in_theme: z.boolean(),
+        }),
+      ),
       members: z.array(
         z.object({
           id: z.uuid(),
