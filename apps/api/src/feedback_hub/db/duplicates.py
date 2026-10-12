@@ -19,6 +19,7 @@ class DedupeItem:
     language: str | None
     content_hash: str | None
     source_created_at: datetime | None = None
+    product_area: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,7 @@ async def load_feedback_items(conn: AsyncConnection) -> list[DedupeItem]:
         await conn.execute(
             text(
                 "select id, source, external_id, title, body, language, content_hash, "
-                "source_created_at from public.feedback_items"
+                "source_created_at, product_area from public.feedback_items"
             )
         )
     ).all()

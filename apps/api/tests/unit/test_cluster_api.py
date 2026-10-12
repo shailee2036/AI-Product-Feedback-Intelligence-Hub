@@ -49,6 +49,7 @@ class _Conn:
         self.briefs: dict[UUID, dict[str, Any]] = {}
         self.brief_versions: dict[UUID, list[dict[str, Any]]] = {}
         self.github_issues: list[dict[str, Any]] = []
+        self.suggestions: dict[UUID, dict[str, Any]] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -78,6 +79,11 @@ class _Conn:
         if sql.startswith("insert into public.product_briefs") and isinstance(params, dict):
             cluster_id = params["cluster_id"]
             self.briefs[cluster_id] = params
+            return _Result()
+        if "from public.issue_suggestions" in sql:
+            return _Result([_Row(**row) for row in self.suggestions.values()])
+        if sql.startswith("insert into public.issue_suggestions") and isinstance(params, dict):
+            self.suggestions[params["cluster_id"]] = params
             return _Result()
         if "from public.feedback_embeddings" in sql:
             return _Result(
@@ -357,6 +363,7 @@ async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
     assert score["score"] == 0.46
     assert body["clusters"][0]["canonical"] is None
     assert body["clusters"][0]["duplicate_warnings"] == []
+    assert body["clusters"][0]["suggestion"] is None
     assert again.json()["cluster_count"] == 1
     assert len(conn.clusters) == 1
     assert audits[-1]["action"] == "cluster.completed"
@@ -365,6 +372,9 @@ async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
 async def test_report_recommends_an_open_github_issue(cluster_api: Any) -> None:
     client, tokens, conn, _holder, _audits, _groq, _settings = cluster_api
     issue_id = conn.items[0]["id"]
+    conn.items[1]["title"] = "Rejected rows for ada@example.com"
+    conn.items[1]["product_area"] = "Import progress"
+    conn.items[2]["product_area"] = "Import progress"
     outside = uuid4()
     conn.github_issues = [
         {
@@ -406,6 +416,27 @@ async def test_report_recommends_an_open_github_issue(cluster_api: Any) -> None:
     assert warning["number"] == 9
     assert warning["similarity"] == 0.9
     assert warning["html_url"].endswith("/issues/9")
+    suggestion = cluster["suggestion"]
+    assert suggestion["saved"] is False
+    assert "ada@example.com" not in suggestion["comment"]
+    assert "[email]" in suggestion["comment"]
+    assert "Related reports:" in suggestion["comment"]
+    assert suggestion["labels"] == ["import-progress"]
+    cluster_id = cluster["id"]
+
+    early = await client.post(f"/v1/feedback/clusters/{cluster_id}/suggestion", headers=headers)
+    assert early.status_code == 409
+
+    approved = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+    assert approved.status_code == 200
+    saved = await client.post(f"/v1/feedback/clusters/{cluster_id}/suggestion", headers=headers)
+    assert saved.status_code == 200
+    assert saved.json()["clusters"][0]["suggestion"]["saved"] is True
+    assert conn.suggestions[UUID(cluster_id)]["feedback_item_id"] == issue_id
 
 
 async def test_naming_requires_a_groq_key(cluster_api: Any) -> None:

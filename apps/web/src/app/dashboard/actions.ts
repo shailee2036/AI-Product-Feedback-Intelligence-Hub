@@ -12,6 +12,7 @@ import {
   mergeClusters,
   nameClusters,
   registerGithubProduct,
+  saveClusterSuggestion,
   relabelCluster,
   splitCluster,
   startEmbeddings,
@@ -153,6 +154,23 @@ export async function splitTheme(_state: ClusterState, formData: FormData): Prom
   if (memberIds.length === 0) return { error: "Select at least one row to move out." };
   try {
     await splitCluster(token, clusterId, memberIds);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function saveSuggestion(
+  _state: ClusterState,
+  formData: FormData,
+): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  const clusterId = String(formData.get("clusterId") ?? "");
+  try {
+    await saveClusterSuggestion(token, clusterId);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
