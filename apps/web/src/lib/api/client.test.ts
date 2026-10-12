@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelIssueImport,
+  decideCluster,
   findClusters,
   findDuplicates,
   getClusters,
@@ -284,11 +285,13 @@ describe("API client", () => {
       neighbor_count: 3,
       minimum_size: 3,
       named_count: 1,
+      approved_count: 0,
       clusters: [
         {
           id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
           name: "Import progress",
           summary: "People want import progress.",
+          status: "open",
           members: [
             {
               id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
@@ -318,6 +321,11 @@ describe("API client", () => {
     expect(named.named_count).toBe(1);
     expect(String(fetchMock.mock.calls[2][0])).toBe("http://api.test/v1/feedback/clusters/names");
     expect(fetchMock.mock.calls[2][1]?.method).toBe("POST");
+
+    fetchMock.mockResolvedValueOnce(respond(200, { ...report, approved_count: 1 }));
+    const approved = await decideCluster("t", report.clusters[0].id, "approve");
+    expect(approved.approved_count).toBe(1);
+    expect(String(fetchMock.mock.calls[3][0])).toContain("/decision");
   });
 
   it("rejects responses that do not match the contract", async () => {

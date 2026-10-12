@@ -112,11 +112,13 @@ export const clusterReportSchema = z.object({
   neighbor_count: z.number(),
   minimum_size: z.number(),
   named_count: z.number(),
+  approved_count: z.number(),
   clusters: z.array(
     z.object({
       id: z.uuid(),
       name: z.string().nullable(),
       summary: z.string().nullable(),
+      status: z.enum(["open", "approved", "dismissed"]),
       members: z.array(
         z.object({
           id: z.uuid(),
