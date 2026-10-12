@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import {
   cancelIssueImport,
   decideCluster,
+  editClusterBrief,
   findClusters,
   findDuplicates,
   mergeClusters,
@@ -166,6 +167,31 @@ export async function writeBrief(_state: ClusterState, formData: FormData): Prom
   const clusterId = String(formData.get("clusterId") ?? "");
   try {
     await writeClusterBrief(token, clusterId);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function editBrief(_state: ClusterState, formData: FormData): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  const clusterId = String(formData.get("clusterId") ?? "");
+  const brief = {
+    problem: String(formData.get("problem") ?? "").trim(),
+    impact: String(formData.get("impact") ?? "").trim(),
+    evidence_summary: String(formData.get("evidence_summary") ?? "").trim(),
+    non_goals: String(formData.get("non_goals") ?? "").trim(),
+    acceptance_criteria: String(formData.get("acceptance_criteria") ?? "").trim(),
+    open_questions: String(formData.get("open_questions") ?? "").trim(),
+  };
+  if (Object.values(brief).some((value) => value.length === 0)) {
+    return { error: "Fill in every section of the brief." };
+  }
+  try {
+    await editClusterBrief(token, clusterId, brief);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };

@@ -138,6 +138,16 @@ export const clusterReportSchema = z.object({
           acceptance_criteria: z.string(),
           open_questions: z.string(),
           evidence_ids: z.array(z.uuid()),
+          version: z.number(),
+          source: z.enum(["generated", "edited"]),
+          history: z.array(
+            z.object({
+              version: z.number(),
+              source: z.enum(["generated", "edited"]),
+              problem: z.string(),
+              created_at: z.string(),
+            }),
+          ),
         })
         .nullable(),
       members: z.array(
