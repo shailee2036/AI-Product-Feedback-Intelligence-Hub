@@ -40,14 +40,15 @@ uvicorn feedback_hub.main:app --reload
 
 ### API chart
 
-The chart in `deploy/charts/api` runs the API on CPU with requests, limits, and health probes. It does not contain credentials. Create a Secret named `feedback-hub-api` in the target namespace, then render the chart with an immutable image tag:
+The chart in `deploy/charts/api` runs the API on CPU with requests, limits, and health probes. It does not contain credentials. Create a Secret named `feedback-hub-api` in the target namespace, then render the chart with an immutable image tag and check it against the Kubernetes 1.37 schema:
 
 ```bash
 helm lint deploy/charts/api --set image.tag="$(git rev-parse HEAD)"
-helm template feedback-hub-api deploy/charts/api --set image.tag="$(git rev-parse HEAD)"
+helm template feedback-hub-api deploy/charts/api --set image.tag="$(git rev-parse HEAD)" > rendered.yaml
+kubeconform -strict -summary -kubernetes-version 1.37.0 rendered.yaml
 ```
 
-`latest` is rejected. Nothing in this chart is installed to a cluster by CI.
+`latest` is rejected. CI lints the chart and validates the rendered manifests. It does not install the chart to a cluster.
 
 ### Frontend
 
