@@ -119,6 +119,16 @@ export const clusterReportSchema = z.object({
       name: z.string().nullable(),
       summary: z.string().nullable(),
       status: z.enum(["open", "approved", "dismissed"]),
+      score: z.object({
+        member_count: z.number(),
+        recent_count: z.number(),
+        recent_days: z.number(),
+        source_count: z.number(),
+        unique_count: z.number(),
+        embedded_count: z.number(),
+        named: z.boolean(),
+        score: z.number(),
+      }),
       members: z.array(
         z.object({
           id: z.uuid(),
