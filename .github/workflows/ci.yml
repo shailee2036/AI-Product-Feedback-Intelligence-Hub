@@ -215,3 +215,31 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+
+  helm-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Helm
+        run: |
+          version=v3.17.4
+          curl -fsSL -o helm.tgz "https://get.helm.sh/helm-${version}-linux-amd64.tar.gz"
+          tar -xzf helm.tgz
+          sudo mv linux-amd64/helm /usr/local/bin/helm
+          helm version
+      - name: Lint and render the API chart
+        run: |
+          tag="${GITHUB_SHA}"
+          helm lint deploy/charts/api --set "image.tag=${tag}"
+          helm template feedback-hub-api deploy/charts/api --set "image.tag=${tag}" > rendered.yaml
+          grep -q "cpu:" rendered.yaml
+          grep -q "/health/live" rendered.yaml
+          grep -q "/health/ready" rendered.yaml
+          grep -q "runAsNonRoot: true" rendered.yaml
+          if grep -Eq "privileged: true|hostNetwork: true|:latest" rendered.yaml; then
+            echo "Rendered chart violates the CPU deployment policy."
+            exit 1
+          fi
