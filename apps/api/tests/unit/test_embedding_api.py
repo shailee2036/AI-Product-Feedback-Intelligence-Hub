@@ -25,7 +25,12 @@ class _Database:
 @pytest.fixture
 async def embedding_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     tokens = TokenFactory()
-    settings = Settings(environment="test", database_url=None, supabase_url=SUPABASE_URL)
+    settings = Settings(
+        environment="test",
+        database_url=None,
+        supabase_url=SUPABASE_URL,
+        gemini_api_key=None,
+    )
     app = create_app(settings)
     app.state.database = _Database()
     app.state.gemini = object()
