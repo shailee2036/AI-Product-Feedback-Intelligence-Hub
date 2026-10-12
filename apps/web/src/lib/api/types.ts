@@ -59,6 +59,19 @@ export const feedbackPageSchema = z.object({
   items: z.array(feedbackItemSchema),
 });
 
+export const embeddingStatusSchema = z.object({
+  id: z.uuid().nullable(),
+  status: z.enum(["idle", "queued", "running", "succeeded", "failed", "cancelled"]),
+  model: z.string(),
+  dimensions: z.number(),
+  embedded_count: z.number(),
+  skipped_count: z.number(),
+  unchanged_count: z.number(),
+  redaction_count: z.number(),
+  stored_count: z.number(),
+  error_message: z.string().nullable(),
+});
+
 export const csvImportSchema = z.object({
   import_id: z.uuid(),
   imported_count: z.number(),
@@ -71,3 +84,4 @@ export type ImportJob = z.infer<typeof importSchema>;
 export type FeedbackPage = z.infer<typeof feedbackPageSchema>;
 export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
 export type CsvImport = z.infer<typeof csvImportSchema>;
+export type EmbeddingStatus = z.infer<typeof embeddingStatusSchema>;

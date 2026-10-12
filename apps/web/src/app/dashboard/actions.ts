@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import {
   cancelIssueImport,
   registerGithubProduct,
+  startEmbeddings,
   startIssueImport,
   uploadFeedbackCsv,
 } from "@/lib/api/client";
@@ -66,6 +67,23 @@ export async function uploadCsv(
     if (error.status === 404) return { error: "Register a repository before uploading feedback." };
     return { error: error.detail.message, reasons: error.detail.reasons };
   }
+}
+
+export type EmbeddingState = { error?: string };
+
+export async function startEmbedding(): Promise<EmbeddingState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  try {
+    await startEmbeddings(token);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.status === 409) return { error: "An embedding run is already in progress." };
+    if (error.status === 404) return { error: "Register a repository before embedding feedback." };
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
 }
 
 export async function startImport(): Promise<ImportState> {

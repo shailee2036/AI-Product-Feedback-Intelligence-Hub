@@ -6,11 +6,13 @@ import { getServerEnv } from "@/lib/server-env";
 import { ApiError, parseErrorDetail } from "./errors";
 import {
   csvImportSchema,
+  embeddingStatusSchema,
   feedbackPageSchema,
   importSchema,
   meSchema,
   productSchema,
   type CsvImport,
+  type EmbeddingStatus,
   type FeedbackPage,
   type ImportJob,
   type Me,
@@ -111,6 +113,14 @@ export async function uploadFeedbackCsv(accessToken: string, file: File): Promis
   const payload: unknown = await response.json().catch(() => undefined);
   if (!response.ok) throw new ApiError(response.status, parseErrorDetail(response.status, payload));
   return csvImportSchema.parse(payload);
+}
+
+export function startEmbeddings(accessToken: string): Promise<EmbeddingStatus> {
+  return request("/v1/feedback/embeddings", embeddingStatusSchema, { method: "POST", accessToken });
+}
+
+export function getCurrentEmbeddings(accessToken: string): Promise<EmbeddingStatus> {
+  return request("/v1/feedback/embeddings/current", embeddingStatusSchema, { accessToken });
 }
 
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {

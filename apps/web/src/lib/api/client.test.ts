@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cancelIssueImport,
   getCurrentImport,
+  getCurrentEmbeddings,
   getFeedback,
   getMe,
   getProduct,
   registerGithubProduct,
+  startEmbeddings,
   startIssueImport,
   uploadFeedbackCsv,
 } from "./client";
@@ -192,6 +194,31 @@ describe("API client", () => {
     expect(init?.body).toBeInstanceOf(FormData);
     expect(new Headers(init?.headers).get("Content-Type")).toBeNull();
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/product/csv");
+  });
+
+  it("starts an embedding run and reads its status", async () => {
+    const status = {
+      id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+      status: "queued",
+      model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      dimensions: 384,
+      embedded_count: 0,
+      skipped_count: 0,
+      unchanged_count: 0,
+      redaction_count: 0,
+      stored_count: 12,
+      error_message: null,
+    };
+    fetchMock.mockResolvedValueOnce(respond(202, status));
+    fetchMock.mockResolvedValueOnce(respond(200, { ...status, status: "succeeded", embedded_count: 12 }));
+
+    const started = await startEmbeddings("t");
+    const current = await getCurrentEmbeddings("t");
+
+    expect(started.status).toBe("queued");
+    expect(current.embedded_count).toBe(12);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/embeddings");
+    expect(String(fetchMock.mock.calls[1][0])).toBe("http://api.test/v1/feedback/embeddings/current");
   });
 
   it("rejects responses that do not match the contract", async () => {
