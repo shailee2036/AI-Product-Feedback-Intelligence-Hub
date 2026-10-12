@@ -52,3 +52,7 @@ async def test_client_reports_provider_status_without_the_body() -> None:
             await client.embed(["login fails"])
 
     assert "hf_secret" not in str(raised.value)
+
+
+def test_missing_credits_are_explained() -> None:
+    assert "credits" in str(EmbeddingProviderError(402))

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import type { EmbeddingStatus } from "@/lib/api/types";
@@ -22,13 +22,27 @@ export function EmbeddingPanel({ status }: { status: EmbeddingStatus }) {
         </div>
         {active ? null : <EmbedButton />}
       </div>
+      {status.status === "failed" && status.error_message ? (
+        <p
+          role="alert"
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+        >
+          {explainFailure(status.error_message)}
+        </p>
+      ) : null}
       {active ? <EmbeddingRefresh /> : null}
     </section>
   );
 }
 
 function EmbedButton() {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState<EmbeddingState, FormData>(startEmbedding, {});
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) router.refresh();
+    wasPending.current = pending;
+  }, [pending, router]);
   return (
     <form action={formAction} className="flex flex-col items-end gap-2">
       <button
@@ -56,12 +70,19 @@ function EmbeddingRefresh() {
   return null;
 }
 
+function explainFailure(message: string): string {
+  if (message.includes("402")) {
+    return "Hugging Face has no credits left for embeddings. Add credits, then try again.";
+  }
+  return message;
+}
+
 function describe(status: EmbeddingStatus): string {
   if (status.status === "queued" || status.status === "running") {
     return "Embedding saved feedback. Contact details are removed before the text is sent.";
   }
   if (status.status === "failed") {
-    return status.error_message ?? "Embedding failed.";
+    return "The last embedding run did not finish.";
   }
   if (status.status === "succeeded" || status.stored_count > 0) {
     return `Embedded ${status.embedded_count}. Skipped ${status.skipped_count}. ${status.unchanged_count} were already current.`;

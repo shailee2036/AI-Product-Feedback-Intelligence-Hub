@@ -102,6 +102,8 @@ def _mean_pool(matrix: list[list[float]]) -> list[float]:
 def _provider_message(status_code: int) -> str:
     if status_code == 401:
         return "The Hugging Face token was rejected."
+    if status_code == 402:
+        return "Hugging Face has no credits left for embeddings. Add credits, then try again."
     if status_code == 429:
         return "Hugging Face rate limit reached. Try again in a minute."
     if status_code in {503, 504}:
