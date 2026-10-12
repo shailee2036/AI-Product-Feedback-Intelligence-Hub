@@ -5,10 +5,16 @@ import { getServerEnv } from "@/lib/server-env";
 
 import { ApiError, parseErrorDetail } from "./errors";
 import {
+  csvImportSchema,
+  duplicateReportSchema,
+  embeddingStatusSchema,
   feedbackPageSchema,
   importSchema,
   meSchema,
   productSchema,
+  type CsvImport,
+  type DuplicateReport,
+  type EmbeddingStatus,
   type FeedbackPage,
   type ImportJob,
   type Me,
@@ -81,8 +87,50 @@ export function cancelIssueImport(accessToken: string, importId: string): Promis
   return request(`/v1/imports/${importId}/cancel`, importSchema, { method: "POST", accessToken });
 }
 
-export function getFeedback(accessToken: string): Promise<FeedbackPage> {
-  return request("/v1/feedback?limit=20", feedbackPageSchema, { accessToken });
+export function getFeedback(
+  accessToken: string,
+  options?: { source?: "github_issue" | "csv"; limit?: number },
+): Promise<FeedbackPage> {
+  const params = new URLSearchParams({ limit: String(options?.limit ?? 20) });
+  if (options?.source) params.set("source", options.source);
+  return request(`/v1/feedback?${params}`, feedbackPageSchema, { accessToken });
+}
+
+export async function uploadFeedbackCsv(accessToken: string, file: File): Promise<CsvImport> {
+  const { apiUrl } = getServerEnv();
+  const body = new FormData();
+  body.set("file", file);
+  let response: Response;
+  try {
+    response = await fetch(new URL("/v1/product/csv", apiUrl), {
+      method: "POST",
+      headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+      body,
+      cache: "no-store",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    throw new ApiError(503, { message: "The API is unreachable.", reasons: [] });
+  }
+  const payload: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) throw new ApiError(response.status, parseErrorDetail(response.status, payload));
+  return csvImportSchema.parse(payload);
+}
+
+export function startEmbeddings(accessToken: string): Promise<EmbeddingStatus> {
+  return request("/v1/feedback/embeddings", embeddingStatusSchema, { method: "POST", accessToken });
+}
+
+export function getCurrentEmbeddings(accessToken: string): Promise<EmbeddingStatus> {
+  return request("/v1/feedback/embeddings/current", embeddingStatusSchema, { accessToken });
+}
+
+export function findDuplicates(accessToken: string): Promise<DuplicateReport> {
+  return request("/v1/feedback/duplicates", duplicateReportSchema, { method: "POST", accessToken });
+}
+
+export function getDuplicates(accessToken: string): Promise<DuplicateReport> {
+  return request("/v1/feedback/duplicates", duplicateReportSchema, { accessToken });
 }
 
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {

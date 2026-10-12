@@ -38,25 +38,83 @@ export const importSchema = z.object({
   finished_at: z.string().nullable(),
 });
 
+export const feedbackItemSchema = z.object({
+  id: z.uuid(),
+  source: z.enum(["github_issue", "csv"]),
+  number: z.number().nullable(),
+  title: z.string(),
+  state: z.string().nullable(),
+  html_url: z.url().nullable(),
+  labels: z.array(z.string()),
+  comment_count: z.number(),
+  reactions_total: z.number(),
+  excerpt: z.string(),
+  product_area: z.string().nullable(),
+  is_synthetic: z.boolean(),
+  updated_at: z.string(),
+});
+
 export const feedbackPageSchema = z.object({
   total: z.number(),
-  items: z.array(
+  items: z.array(feedbackItemSchema),
+});
+
+export const embeddingStatusSchema = z.object({
+  id: z.uuid().nullable(),
+  status: z.enum(["idle", "queued", "running", "succeeded", "failed", "cancelled"]),
+  model: z.string(),
+  dimensions: z.number(),
+  embedded_count: z.number(),
+  skipped_count: z.number(),
+  unchanged_count: z.number(),
+  redaction_count: z.number(),
+  stored_count: z.number(),
+  error_message: z.string().nullable(),
+});
+
+export const duplicateReportSchema = z.object({
+  ran: z.boolean(),
+  exact_edges: z.number(),
+  semantic_edges: z.number(),
+  group_count: z.number(),
+  threshold: z.number(),
+  neighbor_count: z.number(),
+  groups: z.array(
     z.object({
-      id: z.uuid(),
-      number: z.number(),
-      title: z.string(),
-      state: z.string(),
-      html_url: z.url(),
-      labels: z.array(z.string()),
-      comment_count: z.number(),
-      reactions_total: z.number(),
-      excerpt: z.string(),
-      updated_at: z.string(),
+      kind: z.enum(["exact", "semantic", "mixed"]),
+      members: z.array(
+        z.object({
+          id: z.uuid(),
+          source: z.enum(["github_issue", "csv"]),
+          external_id: z.string(),
+          title: z.string(),
+        }),
+      ),
     }),
   ),
+  evaluation: z
+    .object({
+      labeled: z.number(),
+      true_positives: z.number(),
+      false_positives: z.number(),
+      false_negatives: z.number(),
+      precision: z.number().nullable(),
+      recall: z.number().nullable(),
+    })
+    .nullable(),
+});
+
+export const csvImportSchema = z.object({
+  import_id: z.uuid(),
+  imported_count: z.number(),
+  warnings: z.array(z.string()),
 });
 
 export type Me = z.infer<typeof meSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type ImportJob = z.infer<typeof importSchema>;
 export type FeedbackPage = z.infer<typeof feedbackPageSchema>;
+export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
+export type CsvImport = z.infer<typeof csvImportSchema>;
+export type EmbeddingStatus = z.infer<typeof embeddingStatusSchema>;
+export type DuplicateReport = z.infer<typeof duplicateReportSchema>;

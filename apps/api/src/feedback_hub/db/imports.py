@@ -43,14 +43,17 @@ class ImportTarget:
 @dataclass(frozen=True, slots=True)
 class FeedbackItem:
     id: UUID
-    github_number: int
+    source: str
+    github_number: int | None
     title: str
-    state: str
-    html_url: str
+    state: str | None
+    html_url: str | None
     labels: list[str]
     comment_count: int
     reactions_total: int
     excerpt: str
+    product_area: str | None
+    is_synthetic: bool
     source_updated_at: datetime
 
 
@@ -308,16 +311,28 @@ async def upsert_issue(
     )
 
 
-async def list_feedback(conn: AsyncConnection, *, limit: int) -> tuple[list[FeedbackItem], int]:
-    total = (await conn.execute(text("select count(*) from public.feedback_items"))).scalar_one()
+async def list_feedback(
+    conn: AsyncConnection, *, limit: int, source: str | None = None
+) -> tuple[list[FeedbackItem], int]:
+    total = (
+        await conn.execute(
+            text(
+                "select count(*) from public.feedback_items "
+                "where (cast(:source as text) is null or source = :source)"
+            ),
+            {"source": source},
+        )
+    ).scalar_one()
     rows = (
         await conn.execute(
             text(
-                "select id, github_number, title, state, html_url, labels, comment_count, "
-                "reactions_total, left(body_normalized, 180) as excerpt, source_updated_at "
-                "from public.feedback_items order by source_updated_at desc limit :limit"
+                "select id, source, github_number, title, state, html_url, labels, comment_count, "
+                "reactions_total, left(body_normalized, 180) as excerpt, product_area, "
+                "is_synthetic, source_updated_at from public.feedback_items "
+                "where (cast(:source as text) is null or source = :source) "
+                "order by source_updated_at desc limit :limit"
             ),
-            {"limit": limit},
+            {"limit": limit, "source": source},
         )
     ).all()
     return [FeedbackItem(**row._mapping) for row in rows], int(total)

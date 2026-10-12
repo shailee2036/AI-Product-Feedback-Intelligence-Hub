@@ -2,12 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelIssueImport,
+  findDuplicates,
+  getCurrentEmbeddings,
   getCurrentImport,
+  getDuplicates,
   getFeedback,
   getMe,
   getProduct,
   registerGithubProduct,
+  startEmbeddings,
   startIssueImport,
+  uploadFeedbackCsv,
 } from "./client";
 import { ApiError } from "./errors";
 
@@ -153,6 +158,7 @@ describe("API client", () => {
         items: [
           {
             id: "8a4b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+            source: "github_issue",
             number: 42,
             title: "Login fails",
             state: "open",
@@ -161,14 +167,109 @@ describe("API client", () => {
             comment_count: 1,
             reactions_total: 2,
             excerpt: "Customers cannot complete login.",
+            product_area: null,
+            is_synthetic: false,
             updated_at: "2026-10-11T00:00:00Z",
           },
         ],
       }),
     );
-    const page = await getFeedback("t");
+    const page = await getFeedback("t", { source: "github_issue", limit: 20 });
     expect(page.total).toBe(1);
     expect(page.items[0]?.title).toBe("Login fails");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("source=github_issue");
+  });
+
+  it("uploads a csv without setting a content type", async () => {
+    fetchMock.mockResolvedValue(
+      respond(201, {
+        import_id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+        imported_count: 42,
+        warnings: [],
+      }),
+    );
+
+    const saved = await uploadFeedbackCsv("t", new File(["id,feedback"], "feedback.csv", { type: "text/csv" }));
+
+    expect(saved.imported_count).toBe(42);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init?.body).toBeInstanceOf(FormData);
+    expect(new Headers(init?.headers).get("Content-Type")).toBeNull();
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/product/csv");
+  });
+
+  it("starts an embedding run and reads its status", async () => {
+    const status = {
+      id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+      status: "queued",
+      model: "gemini-embedding-001",
+      dimensions: 768,
+      embedded_count: 0,
+      skipped_count: 0,
+      unchanged_count: 0,
+      redaction_count: 0,
+      stored_count: 12,
+      error_message: null,
+    };
+    fetchMock.mockResolvedValueOnce(respond(202, status));
+    fetchMock.mockResolvedValueOnce(respond(200, { ...status, status: "succeeded", embedded_count: 12 }));
+
+    const started = await startEmbeddings("t");
+    const current = await getCurrentEmbeddings("t");
+
+    expect(started.status).toBe("queued");
+    expect(current.embedded_count).toBe(12);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/embeddings");
+    expect(String(fetchMock.mock.calls[1][0])).toBe("http://api.test/v1/feedback/embeddings/current");
+  });
+
+  it("finds duplicates and reads the stored groups", async () => {
+    const report = {
+      ran: true,
+      exact_edges: 1,
+      semantic_edges: 2,
+      group_count: 3,
+      threshold: 0.86,
+      neighbor_count: 2,
+      groups: [
+        {
+          kind: "exact",
+          members: [
+            {
+              id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+              source: "csv",
+              external_id: "AW-SYN-001",
+              title: "Callback checklist",
+            },
+            {
+              id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+              source: "csv",
+              external_id: "AW-SYN-002",
+              title: "Callback rejected",
+            },
+          ],
+        },
+      ],
+      evaluation: {
+        labeled: 3,
+        true_positives: 1,
+        false_positives: 0,
+        false_negatives: 1,
+        precision: 1,
+        recall: 0.5,
+      },
+    };
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+    fetchMock.mockResolvedValueOnce(respond(200, { ...report, ran: true }));
+
+    const found = await findDuplicates("t");
+    const current = await getDuplicates("t");
+
+    expect(found.group_count).toBe(3);
+    expect(current.evaluation?.recall).toBe(0.5);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/duplicates");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[1][1]?.method).toBe("GET");
   });
 
   it("rejects responses that do not match the contract", async () => {

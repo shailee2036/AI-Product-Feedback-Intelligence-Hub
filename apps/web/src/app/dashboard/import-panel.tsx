@@ -33,14 +33,18 @@ export function ImportPanel({
           {feedback.items.map((item) => (
             <li key={item.id} className="py-3">
               <div className="flex items-baseline justify-between gap-3">
-                <a
-                  href={item.html_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-indigo-600 hover:underline"
-                >
-                  #{item.number} {item.title}
-                </a>
+                {item.html_url ? (
+                  <a
+                    href={item.html_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-indigo-600 hover:underline"
+                  >
+                    #{item.number} {item.title}
+                  </a>
+                ) : (
+                  <span className="font-medium">{item.title}</span>
+                )}
                 <span className="shrink-0 text-xs uppercase tracking-wide text-zinc-500">{item.state}</span>
               </div>
               {item.excerpt ? (

@@ -2,18 +2,29 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { signOut } from "@/app/login/actions";
-import { getCurrentImport, getFeedback, getMe, getProduct } from "@/lib/api/client";
+import { getCurrentEmbeddings, getCurrentImport, getDuplicates, getFeedback, getMe, getProduct } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import type { FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
+import type { DuplicateReport, EmbeddingStatus, FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
 import { getVerifiedAccessToken } from "@/lib/supabase/server";
 
+import { CsvPanel } from "./csv-panel";
+import { DuplicatePanel } from "./duplicate-panel";
+import { EmbeddingPanel } from "./embedding-panel";
 import { ImportPanel } from "./import-panel";
 import { RegisterRepositoryForm } from "./register-form";
 
 export const metadata: Metadata = { title: "Dashboard · Feedback Intelligence Hub" };
 
 type Loaded =
-  | { me: Me; product: Product | null; job: ImportJob | null; feedback: FeedbackPage }
+  | {
+      me: Me;
+      product: Product | null;
+      job: ImportJob | null;
+      feedback: FeedbackPage;
+      csvFeedback: FeedbackPage;
+      embeddings: EmbeddingStatus | null;
+      duplicates: DuplicateReport | null;
+    }
   | { error: string };
 
 const EMPTY_FEEDBACK: FeedbackPage = { total: 0, items: [] };
@@ -22,9 +33,25 @@ async function load(token: string): Promise<Loaded> {
   try {
     const me = await getMe(token);
     const product = await getProduct(token);
-    if (!product) return { me, product, job: null, feedback: EMPTY_FEEDBACK };
-    const [job, feedback] = await Promise.all([getCurrentImport(token), getFeedback(token)]);
-    return { me, product, job, feedback };
+    if (!product) {
+      return {
+        me,
+        product,
+        job: null,
+        feedback: EMPTY_FEEDBACK,
+        csvFeedback: EMPTY_FEEDBACK,
+        embeddings: null,
+        duplicates: null,
+      };
+    }
+    const [job, feedback, csvFeedback, embeddings, duplicates] = await Promise.all([
+      getCurrentImport(token),
+      getFeedback(token, { source: "github_issue", limit: 20 }),
+      getFeedback(token, { source: "csv", limit: 50 }),
+      getCurrentEmbeddings(token),
+      getDuplicates(token),
+    ]);
+    return { me, product, job, feedback, csvFeedback, embeddings, duplicates };
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect("/login?next=/dashboard");
     return { error: error instanceof ApiError ? error.detail.message : "Something went wrong." };
@@ -61,7 +88,14 @@ export default async function DashboardPage() {
           <p className="mt-1">{data.error}</p>
         </section>
       ) : data.product ? (
-        <ProductCard product={data.product} job={data.job} feedback={data.feedback} />
+        <ProductCard
+          product={data.product}
+          job={data.job}
+          feedback={data.feedback}
+          csvFeedback={data.csvFeedback}
+          embeddings={data.embeddings}
+          duplicates={data.duplicates}
+        />
       ) : (
         <section className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
           <h2 className="text-lg font-semibold">Register your product</h2>
@@ -79,10 +113,16 @@ function ProductCard({
   product,
   job,
   feedback,
+  csvFeedback,
+  embeddings,
+  duplicates,
 }: {
   product: Product;
   job: ImportJob | null;
   feedback: FeedbackPage;
+  csvFeedback: FeedbackPage;
+  embeddings: EmbeddingStatus | null;
+  duplicates: DuplicateReport | null;
 }) {
   const repo = product.repository;
   const registered = new Date(product.created_at).toLocaleDateString("en-US", {
@@ -120,6 +160,9 @@ function ProductCard({
         </dl>
       </div>
       <ImportPanel job={job} feedback={feedback} />
+      <CsvPanel feedback={csvFeedback} />
+      {embeddings ? <EmbeddingPanel status={embeddings} /> : null}
+      {duplicates ? <DuplicatePanel report={duplicates} /> : null}
     </section>
   );
 }

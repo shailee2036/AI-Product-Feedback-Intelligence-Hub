@@ -9,10 +9,20 @@ from prometheus_client import make_asgi_app
 from sqlalchemy import text
 
 from feedback_hub import __version__
-from feedback_hub.api import health, imports, me, product, repositories
+from feedback_hub.api import (
+    csv_import,
+    duplicates,
+    embeddings,
+    health,
+    imports,
+    me,
+    product,
+    repositories,
+)
 from feedback_hub.auth import SupabaseJwtVerifier
 from feedback_hub.config import Settings, get_settings
 from feedback_hub.db.engine import Database
+from feedback_hub.feedback.embeddings import EmbeddingClient, build_gemini_client
 from feedback_hub.github.client import GitHubClient, build_http_client
 from feedback_hub.observability import metrics_middleware
 
@@ -25,6 +35,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with AsyncExitStack() as stack:
         github_http = await stack.enter_async_context(build_http_client(settings))
         app.state.github = GitHubClient(github_http)
+        gemini_http = await stack.enter_async_context(build_gemini_client(settings))
+        app.state.gemini = EmbeddingClient(
+            gemini_http,
+            base_url=settings.gemini_api_base_url,
+            model=settings.gemini_embedding_model,
+            dimensions=settings.gemini_embedding_dimensions,
+        )
 
         if settings.supabase_url is not None:
             auth_http = await stack.enter_async_context(httpx.AsyncClient(timeout=5.0))
@@ -53,6 +70,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     )
             except Exception:
                 logger.warning("Could not recover interrupted imports.", exc_info=True)
+            try:
+                async with database.engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "update public.embedding_runs set status = 'failed', "
+                            "error_message = 'Embedding was interrupted before it finished.', "
+                            "finished_at = now() where status in ('queued', 'running')"
+                        )
+                    )
+            except Exception:
+                logger.warning("Could not recover interrupted embedding runs.", exc_info=True)
         yield
         tasks: set[asyncio.Task[None]] = app.state.import_tasks
         for task in tasks:
@@ -79,8 +107,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(me.router)
     app.include_router(product.router)
+    app.include_router(csv_import.router)
     app.include_router(repositories.router)
     app.include_router(imports.router)
+    app.include_router(embeddings.router)
+    app.include_router(duplicates.router)
     app.mount("/metrics", make_asgi_app())
     return app
 
