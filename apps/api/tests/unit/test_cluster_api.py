@@ -59,11 +59,13 @@ class _Conn:
         if "from public.duplicate_edges" in sql:
             return _Result()
         if "max(version_number)" in sql and isinstance(params, dict):
-            rows = self.brief_versions.get(params["cluster_id"], [])
-            latest = max((int(row["version_number"]) for row in rows), default=0)
+            versions = self.brief_versions.get(params["cluster_id"], [])
+            latest = max((int(version["version_number"]) for version in versions), default=0)
             return _Result([_Row(version_number=latest)])
         if "from public.product_brief_versions" in sql:
-            stored = [row for rows in self.brief_versions.values() for row in rows]
+            stored = [
+                version for version_rows in self.brief_versions.values() for version in version_rows
+            ]
             return _Result([_Row(**row) for row in stored])
         if sql.startswith("insert into public.product_brief_versions") and isinstance(params, dict):
             self.brief_versions.setdefault(params["cluster_id"], []).append(params)
