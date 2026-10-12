@@ -104,6 +104,15 @@ export const duplicateReportSchema = z.object({
     .nullable(),
 });
 
+const duplicateWarningSchema = z.object({
+  id: z.uuid(),
+  number: z.number(),
+  title: z.string(),
+  html_url: z.string(),
+  similarity: z.number(),
+  in_theme: z.boolean(),
+});
+
 export const clusterReportSchema = z.object({
   ran: z.boolean(),
   cluster_count: z.number(),
@@ -165,20 +174,20 @@ export const clusterReportSchema = z.object({
           score: z.number(),
         })
         .nullable(),
-      duplicate_warnings: z.array(
-        z.object({
-          id: z.uuid(),
-          number: z.number(),
-          title: z.string(),
-          html_url: z.string(),
-          similarity: z.number(),
-          in_theme: z.boolean(),
-        }),
-      ),
+      duplicate_warnings: z.array(duplicateWarningSchema),
       suggestion: z
         .object({
           comment: z.string(),
           labels: z.array(z.string()),
+          saved: z.boolean(),
+        })
+        .nullable(),
+      new_issue: z
+        .object({
+          title: z.string(),
+          body: z.string(),
+          labels: z.array(z.string()),
+          warnings: z.array(duplicateWarningSchema),
           saved: z.boolean(),
         })
         .nullable(),
@@ -199,6 +208,13 @@ export const clusterReportSchema = z.object({
       mean_cohesion: z.number(),
     })
     .nullable(),
+});
+
+export const newIssuePreviewSchema = z.object({
+  title: z.string(),
+  body: z.string(),
+  labels: z.array(z.string()),
+  warnings: z.array(duplicateWarningSchema),
 });
 
 export const auditReportSchema = z.object({
@@ -227,4 +243,5 @@ export type CsvImport = z.infer<typeof csvImportSchema>;
 export type EmbeddingStatus = z.infer<typeof embeddingStatusSchema>;
 export type DuplicateReport = z.infer<typeof duplicateReportSchema>;
 export type ClusterReport = z.infer<typeof clusterReportSchema>;
+export type NewIssuePreview = z.infer<typeof newIssuePreviewSchema>;
 export type AuditReport = z.infer<typeof auditReportSchema>;

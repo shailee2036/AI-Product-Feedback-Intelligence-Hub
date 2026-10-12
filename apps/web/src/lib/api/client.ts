@@ -9,6 +9,7 @@ import {
   clusterReportSchema,
   csvImportSchema,
   duplicateReportSchema,
+  newIssuePreviewSchema,
   embeddingStatusSchema,
   feedbackPageSchema,
   importSchema,
@@ -22,6 +23,7 @@ import {
   type FeedbackPage,
   type ImportJob,
   type Me,
+  type NewIssuePreview,
   type Product,
 } from "./types";
 
@@ -213,6 +215,30 @@ export function saveClusterSuggestion(
     method: "POST",
     accessToken,
   });
+}
+
+export function previewNewIssue(accessToken: string, clusterId: string): Promise<NewIssuePreview> {
+  return request(`/v1/feedback/clusters/${clusterId}/issue-draft`, newIssuePreviewSchema, {
+    method: "POST",
+    accessToken,
+  });
+}
+
+export function confirmNewIssue(
+  accessToken: string,
+  clusterId: string,
+  title: string,
+  body: string,
+): Promise<ClusterReport> {
+  return request(
+    `/v1/feedback/clusters/${clusterId}/issue-draft/confirmation`,
+    clusterReportSchema,
+    {
+      method: "POST",
+      body: { confirmed: true, create_on_github: false, title, body },
+      accessToken,
+    },
+  );
 }
 
 export function writeClusterBrief(accessToken: string, clusterId: string): Promise<ClusterReport> {

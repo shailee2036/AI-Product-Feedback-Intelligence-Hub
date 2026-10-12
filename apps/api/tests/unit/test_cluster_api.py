@@ -50,6 +50,7 @@ class _Conn:
         self.brief_versions: dict[UUID, list[dict[str, Any]]] = {}
         self.github_issues: list[dict[str, Any]] = []
         self.suggestions: dict[UUID, dict[str, Any]] = {}
+        self.drafts: dict[UUID, dict[str, Any]] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -84,6 +85,11 @@ class _Conn:
             return _Result([_Row(**row) for row in self.suggestions.values()])
         if sql.startswith("insert into public.issue_suggestions") and isinstance(params, dict):
             self.suggestions[params["cluster_id"]] = params
+            return _Result()
+        if "from public.issue_drafts" in sql:
+            return _Result([_Row(**row) for row in self.drafts.values()])
+        if sql.startswith("insert into public.issue_drafts") and isinstance(params, dict):
+            self.drafts[params["cluster_id"]] = params
             return _Result()
         if "from public.feedback_embeddings" in sql:
             return _Result(
@@ -364,6 +370,7 @@ async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
     assert body["clusters"][0]["canonical"] is None
     assert body["clusters"][0]["duplicate_warnings"] == []
     assert body["clusters"][0]["suggestion"] is None
+    assert body["clusters"][0]["new_issue"] is None
     assert again.json()["cluster_count"] == 1
     assert len(conn.clusters) == 1
     assert audits[-1]["action"] == "cluster.completed"
@@ -422,6 +429,7 @@ async def test_report_recommends_an_open_github_issue(cluster_api: Any) -> None:
     assert "[email]" in suggestion["comment"]
     assert "Related reports:" in suggestion["comment"]
     assert suggestion["labels"] == ["import-progress"]
+    assert cluster["new_issue"] is None
     cluster_id = cluster["id"]
 
     early = await client.post(f"/v1/feedback/clusters/{cluster_id}/suggestion", headers=headers)
@@ -437,6 +445,95 @@ async def test_report_recommends_an_open_github_issue(cluster_api: Any) -> None:
     assert saved.status_code == 200
     assert saved.json()["clusters"][0]["suggestion"]["saved"] is True
     assert conn.suggestions[UUID(cluster_id)]["feedback_item_id"] == issue_id
+
+
+async def test_new_issue_draft_stays_local_until_confirmed(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, audits, _groq, _settings = cluster_api
+    issue_id = conn.items[0]["id"]
+    conn.items[0]["source"] = "github_issue"
+    conn.items[1]["title"] = "Rejected rows for ada@example.com"
+    conn.items[1]["product_area"] = "Import progress"
+    outside = uuid4()
+    conn.github_issues = [
+        {
+            "id": issue_id,
+            "github_number": 7,
+            "title": "Show import progress",
+            "state": "open",
+            "html_url": "https://github.com/appwrite/appwrite/issues/7",
+            "comment_count": 4,
+            "reactions_total": 2,
+            "source_updated_at": datetime(2026, 10, 11, tzinfo=UTC),
+        },
+        {
+            "id": outside,
+            "github_number": 9,
+            "title": "Import stays on zero",
+            "state": "open",
+            "html_url": "https://github.com/appwrite/appwrite/issues/9",
+            "comment_count": 1,
+            "reactions_total": 0,
+            "source_updated_at": datetime(2026, 9, 1, tzinfo=UTC),
+        },
+    ]
+    left, right = (issue_id, outside) if issue_id < outside else (outside, issue_id)
+    conn.pairs.append((left, right, 0.9))
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    created = await client.post("/v1/feedback/clusters", headers=headers)
+    cluster_id = created.json()["clusters"][0]["id"]
+
+    early = await client.post(f"/v1/feedback/clusters/{cluster_id}/issue-draft", headers=headers)
+    assert early.status_code == 409
+
+    approved = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+    assert approved.status_code == 200
+    preview = await client.post(f"/v1/feedback/clusters/{cluster_id}/issue-draft", headers=headers)
+    assert preview.status_code == 200
+    draft = preview.json()
+    assert draft["title"] == "Feedback theme"
+    assert "ada@example.com" not in draft["body"]
+    assert "[email]" in draft["body"]
+    assert [warning["number"] for warning in draft["warnings"]] == [7, 9]
+    assert conn.drafts == {}
+
+    unconfirmed = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/issue-draft/confirmation",
+        headers=headers,
+        json={"confirmed": False},
+    )
+    assert unconfirmed.status_code == 409
+    github = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/issue-draft/confirmation",
+        headers=headers,
+        json={"confirmed": True, "create_on_github": True, "title": "Progress", "body": "Show it."},
+    )
+    assert github.status_code == 409
+    assert "not enabled" in github.json()["detail"]
+    assert conn.drafts == {}
+
+    saved = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/issue-draft/confirmation",
+        headers=headers,
+        json={
+            "confirmed": True,
+            "title": "Email ada@example.com about progress",
+            "body": "Look at ada@example.com\nThen show a count.",
+        },
+    )
+    assert saved.status_code == 200
+    new_issue = saved.json()["clusters"][0]["new_issue"]
+    assert new_issue["saved"] is True
+    assert "ada@example.com" not in new_issue["title"]
+    assert "[email]" in new_issue["title"]
+    assert "ada@example.com" not in new_issue["body"]
+    assert new_issue["labels"] == ["import-progress"]
+    assert [warning["number"] for warning in new_issue["warnings"]] == [7, 9]
+    assert conn.drafts[UUID(cluster_id)]["title"] == new_issue["title"]
+    assert audits[-1]["action"] == "cluster.issue_draft_saved"
 
 
 async def test_naming_requires_a_groq_key(cluster_api: Any) -> None:

@@ -74,6 +74,37 @@ def recommend_canonical(
     return chosen, tuple(warnings[:WARNING_LIMIT])
 
 
+def final_open_issue_warnings(
+    member_ids: tuple[UUID, ...],
+    issues: dict[UUID, IssueSignal],
+    pairs: list[tuple[UUID, UUID, float]],
+    *,
+    duplicate_threshold: float,
+) -> tuple[IssueWarning, ...]:
+    """Warn before a new issue is drafted.
+
+    Every open issue already in the theme is listed. Open issues outside the theme
+    are listed when their best similarity to a theme row meets the duplicate threshold.
+    Closed issues are left out. Nothing is created on GitHub.
+    """
+    if not member_ids:
+        return ()
+    members = set(member_ids)
+    index = _pair_index(pairs)
+    warnings: list[IssueWarning] = []
+    for issue in issues.values():
+        if issue.state != "open" or not _usable(issue):
+            continue
+        in_theme = issue.id in members
+        similarity = round(_best(issue.id, members - {issue.id}, index), 3)
+        if in_theme or similarity >= duplicate_threshold:
+            warnings.append(IssueWarning(issue, similarity, in_theme))
+    warnings.sort(
+        key=lambda warning: (not warning.in_theme, -warning.similarity, warning.issue.number)
+    )
+    return tuple(warnings[:WARNING_LIMIT])
+
+
 def _usable(issue: IssueSignal) -> bool:
     return (
         issue.number > 0

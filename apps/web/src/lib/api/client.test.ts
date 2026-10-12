@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelIssueImport,
+  confirmNewIssue,
   decideCluster,
   findClusters,
   findDuplicates,
@@ -14,6 +15,7 @@ import {
   getMe,
   getProduct,
   nameClusters,
+  previewNewIssue,
   registerGithubProduct,
   startEmbeddings,
   startIssueImport,
@@ -328,6 +330,7 @@ describe("API client", () => {
           canonical: null,
           duplicate_warnings: [],
           suggestion: null,
+          new_issue: null,
           members: [
             {
               id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
@@ -362,6 +365,49 @@ describe("API client", () => {
     const approved = await decideCluster("t", report.clusters[0].id, "approve");
     expect(approved.approved_count).toBe(1);
     expect(String(fetchMock.mock.calls[3][0])).toContain("/decision");
+  });
+
+  it("previews a new issue and confirms the local draft", async () => {
+    const preview = {
+      title: "Import progress",
+      body: "People want a count.",
+      labels: ["import-progress"],
+      warnings: [],
+    };
+    fetchMock.mockResolvedValueOnce(respond(200, preview));
+    const clusterId = "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c";
+
+    const draft = await previewNewIssue("t", clusterId);
+
+    expect(draft.title).toBe("Import progress");
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      `http://api.test/v1/feedback/clusters/${clusterId}/issue-draft`,
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+
+    fetchMock.mockResolvedValueOnce(
+      respond(200, {
+        ran: true,
+        cluster_count: 1,
+        member_count: 1,
+        threshold: 0.82,
+        neighbor_count: 3,
+        minimum_size: 3,
+        named_count: 1,
+        approved_count: 1,
+        clusters: [],
+        evaluation: null,
+      }),
+    );
+    await confirmNewIssue("t", clusterId, "Import progress", "People want a count.");
+    const sent = fetchMock.mock.calls[1][1];
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/issue-draft/confirmation");
+    expect(JSON.parse(String(sent?.body))).toEqual({
+      confirmed: true,
+      create_on_github: false,
+      title: "Import progress",
+      body: "People want a count.",
+    });
   });
 
   it("rejects responses that do not match the contract", async () => {

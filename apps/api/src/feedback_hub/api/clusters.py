@@ -40,6 +40,7 @@ from feedback_hub.db.duplicates import (
     load_github_issue_signals,
 )
 from feedback_hub.db.engine import Database, get_database
+from feedback_hub.db.issue_drafts import StoredIssueDraft, load_issue_drafts, save_issue_draft
 from feedback_hub.db.products import RegisteredProduct, get_product
 from feedback_hub.db.suggestions import (
     StoredSuggestion,
@@ -47,10 +48,20 @@ from feedback_hub.db.suggestions import (
     save_issue_suggestion,
 )
 from feedback_hub.db.workspaces import Workspace, ensure_workspace, record_audit_event
-from feedback_hub.feedback.canonical import IssueSignal, recommend_canonical
+from feedback_hub.feedback.canonical import (
+    IssueSignal,
+    final_open_issue_warnings,
+    recommend_canonical,
+)
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
 from feedback_hub.feedback.groq import GroqClient, GroqError
 from feedback_hub.feedback.issue_suggestions import IssueDraft, suggest_issue_update
+from feedback_hub.feedback.new_issues import (
+    NewIssueText,
+    clean_issue_body,
+    clean_issue_title,
+    draft_new_issue,
+)
 from feedback_hub.feedback.normalize import prepare_text
 from feedback_hub.feedback.theme_briefs import (
     brief_from_edit,
@@ -78,6 +89,12 @@ NO_NAME = "Enter a theme name."
 NO_APPROVED = "Approve the theme before writing a brief."
 NO_CANONICAL = "No imported GitHub issue is available for this theme."
 NO_SUGGESTION = "Approve the theme before saving a suggestion."
+NO_DRAFT = "Approve the theme before drafting a new issue."
+NO_CONFIRM = "Confirm the draft before saving it. Nothing is created on GitHub."
+NO_GITHUB_WRITE = (
+    "Creating a GitHub issue is not enabled. A confirmed draft is saved only in the workspace."
+)
+NO_DRAFT_TEXT = "Write a title and a body before saving the draft."
 NO_BRIEF_YET = "Write a brief before editing it."
 NO_SECTION = "Fill in every section of the brief."
 NAME_PROVIDER = "groq"
@@ -131,6 +148,28 @@ class IssueSuggestion(BaseModel):
     saved: bool
 
 
+class NewIssueDraft(BaseModel):
+    title: str
+    body: str
+    labels: list[str]
+    warnings: list[DuplicateWarning]
+    saved: bool
+
+
+class NewIssuePreview(BaseModel):
+    title: str
+    body: str
+    labels: list[str]
+    warnings: list[DuplicateWarning]
+
+
+class ConfirmIssueDraft(BaseModel):
+    confirmed: bool
+    create_on_github: bool = False
+    title: str | None = Field(default=None, max_length=2000)
+    body: str | None = Field(default=None, max_length=4000)
+
+
 class BriefVersion(BaseModel):
     version: int
     source: Literal["generated", "edited"]
@@ -162,6 +201,7 @@ class ClusterGroup(BaseModel):
     canonical: CanonicalIssue | None
     duplicate_warnings: list[DuplicateWarning]
     suggestion: IssueSuggestion | None
+    new_issue: NewIssueDraft | None
 
 
 class ClusterEvaluation(BaseModel):
@@ -267,6 +307,7 @@ async def find_clusters(
             pairs=loaded.pairs,
             duplicate_threshold=settings.duplicate_similarity_threshold,
             suggestions=loaded.suggestions,
+            drafts=loaded.drafts,
         )
         await record_audit_event(
             conn,
@@ -311,6 +352,7 @@ async def read_clusters(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -379,6 +421,7 @@ async def name_clusters(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -442,6 +485,7 @@ async def relabel_theme(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -485,6 +529,7 @@ async def decide_theme(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -531,6 +576,7 @@ async def merge_theme(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -578,6 +624,7 @@ async def split_theme(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -653,6 +700,7 @@ async def write_theme_brief(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -733,6 +781,7 @@ async def edit_theme_brief(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
     )
 
 
@@ -797,6 +846,195 @@ async def save_theme_suggestion(
         pairs=loaded.pairs,
         duplicate_threshold=settings.duplicate_similarity_threshold,
         suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
+    )
+
+
+@router.post("/v1/feedback/clusters/{cluster_id}/issue-draft", response_model=NewIssuePreview)
+async def preview_new_issue(
+    cluster_id: UUID,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> NewIssuePreview:
+    """Show a new-issue draft and similar open issues. Nothing is saved or created."""
+    async with database.user_transaction(user) as conn:
+        *_, cluster, loaded, by_id, member_ids = await _approved_theme_context(
+            conn, user, cluster_id, settings
+        )
+        generated = _generated_issue(cluster, by_id, loaded.briefs.get(cluster.id))
+        warnings = _open_issue_warnings(
+            member_ids,
+            issues=loaded.issues,
+            pairs=loaded.pairs,
+            duplicate_threshold=settings.duplicate_similarity_threshold,
+        )
+    return NewIssuePreview(
+        title=generated.title,
+        body=generated.body,
+        labels=list(generated.labels),
+        warnings=warnings,
+    )
+
+
+@router.post(
+    "/v1/feedback/clusters/{cluster_id}/issue-draft/confirmation",
+    response_model=ClusterReport,
+)
+async def confirm_new_issue(
+    cluster_id: UUID,
+    body: ConfirmIssueDraft,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Save a confirmed draft in the workspace. Creating a GitHub issue is rejected."""
+    if body.create_on_github:
+        raise HTTPException(status.HTTP_409_CONFLICT, NO_GITHUB_WRITE)
+    if not body.confirmed:
+        raise HTTPException(status.HTTP_409_CONFLICT, NO_CONFIRM)
+    async with database.user_transaction(user) as conn:
+        (
+            workspace,
+            product,
+            run,
+            items,
+            stored,
+            cluster,
+            loaded,
+            by_id,
+            member_ids,
+        ) = await _approved_theme_context(conn, user, cluster_id, settings)
+        generated = _generated_issue(cluster, by_id, loaded.briefs.get(cluster.id))
+        title, draft_body = _draft_text(generated, body.title, body.body)
+        warnings = _open_issue_warnings(
+            member_ids,
+            issues=loaded.issues,
+            pairs=loaded.pairs,
+            duplicate_threshold=settings.duplicate_similarity_threshold,
+        )
+        await save_issue_draft(
+            conn,
+            cluster_id=cluster.id,
+            tenant_id=workspace.tenant_id,
+            product_id=product.id,
+            title=title,
+            body=draft_body,
+            labels=generated.labels,
+        )
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.issue_draft_saved",
+            target_type="candidate_cluster",
+            target_id=str(cluster.id),
+            metadata={"product_id": str(product.id), "warning_count": len(warnings)},
+        )
+        loaded = await _report_inputs(conn, settings)
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+        edges=loaded.edges,
+        embedded=loaded.embedded,
+        briefs=loaded.briefs,
+        history=loaded.history,
+        issues=loaded.issues,
+        pairs=loaded.pairs,
+        duplicate_threshold=settings.duplicate_similarity_threshold,
+        suggestions=loaded.suggestions,
+        drafts=loaded.drafts,
+    )
+
+
+async def _approved_theme_context(
+    conn: AsyncConnection,
+    user: CurrentUser,
+    cluster_id: UUID,
+    settings: Settings,
+) -> tuple[
+    Workspace,
+    RegisteredProduct,
+    AnalysisRun,
+    list[DedupeItem],
+    list[StoredCluster],
+    StoredCluster,
+    "_ReportInputs",
+    dict[UUID, DedupeItem],
+    tuple[UUID, ...],
+]:
+    workspace, product, run, items, stored = await _review_context(conn, user)
+    cluster = _find_cluster(stored, cluster_id)
+    if cluster is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+    if cluster.status != "approved":
+        raise HTTPException(status.HTTP_409_CONFLICT, NO_DRAFT)
+    loaded = await _report_inputs(conn, settings)
+    by_id = {item.id: item for item in items}
+    member_ids = tuple(member_id for member_id in cluster.member_ids if member_id in by_id)
+    return workspace, product, run, items, stored, cluster, loaded, by_id, member_ids
+
+
+def _generated_issue(
+    cluster: StoredCluster, by_id: dict[UUID, DedupeItem], brief: StoredBrief | None
+) -> NewIssueText:
+    rows = [by_id[member_id] for member_id in cluster.member_ids if member_id in by_id]
+    return draft_new_issue(
+        theme_name=cluster.name,
+        theme_summary=cluster.summary,
+        brief_problem=None if brief is None else brief.problem,
+        brief_impact=None if brief is None else brief.impact,
+        brief_evidence=None if brief is None else brief.evidence_summary,
+        reports=[row.title for row in rows if row.source == "csv"],
+        areas=[row.product_area for row in rows],
+    )
+
+
+def _draft_text(generated: NewIssueText, title: str | None, body: str | None) -> tuple[str, str]:
+    chosen_title = generated.title if title is None else clean_issue_title(title)
+    chosen_body = generated.body if body is None else clean_issue_body(body)
+    if not chosen_title or not chosen_body:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, NO_DRAFT_TEXT)
+    return chosen_title, chosen_body
+
+
+def _open_issue_warnings(
+    member_ids: tuple[UUID, ...],
+    *,
+    issues: dict[UUID, IssueSignal],
+    pairs: list[tuple[UUID, UUID, float]],
+    duplicate_threshold: float,
+) -> list[DuplicateWarning]:
+    warnings = final_open_issue_warnings(
+        member_ids, issues, pairs, duplicate_threshold=duplicate_threshold
+    )
+    return [
+        DuplicateWarning(
+            id=warning.issue.id,
+            number=warning.issue.number,
+            title=warning.issue.title,
+            html_url=warning.issue.html_url,
+            similarity=warning.similarity,
+            in_theme=warning.in_theme,
+        )
+        for warning in warnings
+    ]
+
+
+def _public_new_issue(
+    stored: StoredIssueDraft | None, warnings: list[DuplicateWarning]
+) -> NewIssueDraft | None:
+    if stored is None:
+        return None
+    return NewIssueDraft(
+        title=stored.title,
+        body=stored.body,
+        labels=list(stored.labels),
+        warnings=warnings,
+        saved=True,
     )
 
 
@@ -879,6 +1117,7 @@ def _report(
     pairs: list[tuple[UUID, UUID, float]],
     duplicate_threshold: float,
     suggestions: dict[UUID, StoredSuggestion],
+    drafts: dict[UUID, StoredIssueDraft],
     now: datetime | None = None,
 ) -> ClusterReport:
     by_id = {item.id: item for item in items}
@@ -927,6 +1166,15 @@ def _report(
                 suggestion=None
                 if draft is None or canonical is None
                 else _public_suggestion(draft, suggestions.get(cluster.id), canonical.id),
+                new_issue=_public_new_issue(
+                    drafts.get(cluster.id),
+                    _open_issue_warnings(
+                        member_ids,
+                        issues=issues,
+                        pairs=pairs,
+                        duplicate_threshold=duplicate_threshold,
+                    ),
+                ),
             )
         )
     identities = [(str(item.id), item.external_id) for item in items]
@@ -984,6 +1232,7 @@ class _ReportInputs:
     issues: dict[UUID, IssueSignal]
     pairs: list[tuple[UUID, UUID, float]]
     suggestions: dict[UUID, StoredSuggestion]
+    drafts: dict[UUID, StoredIssueDraft]
 
 
 async def _report_inputs(conn: AsyncConnection, settings: Settings) -> _ReportInputs:
@@ -1004,13 +1253,14 @@ async def _report_inputs(conn: AsyncConnection, settings: Settings) -> _ReportIn
     suggestions = {
         suggestion.cluster_id: suggestion for suggestion in await load_issue_suggestions(conn)
     }
+    drafts = {draft.cluster_id: draft for draft in await load_issue_drafts(conn)}
     pairs = await load_embedding_pairs(
         conn,
         provider=PROVIDER,
         model=settings.gemini_embedding_model,
         model_version=settings.gemini_embedding_version,
     )
-    return _ReportInputs(edges, embedded, briefs, history, issues, pairs, suggestions)
+    return _ReportInputs(edges, embedded, briefs, history, issues, pairs, suggestions, drafts)
 
 
 def _issue_draft(
