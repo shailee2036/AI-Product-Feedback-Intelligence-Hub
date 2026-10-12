@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelIssueImport,
+  findClusters,
   findDuplicates,
+  getClusters,
   getCurrentEmbeddings,
   getCurrentImport,
   getDuplicates,
@@ -270,6 +272,41 @@ describe("API client", () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/duplicates");
     expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[1][1]?.method).toBe("GET");
+  });
+
+  it("finds themes and reads the stored clusters", async () => {
+    const report = {
+      ran: true,
+      cluster_count: 2,
+      member_count: 6,
+      threshold: 0.82,
+      neighbor_count: 3,
+      minimum_size: 3,
+      clusters: [
+        {
+          id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+          members: [
+            {
+              id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+              source: "csv",
+              external_id: "AW-SYN-007",
+              title: "Import progress",
+            },
+          ],
+        },
+      ],
+      evaluation: { labeled: 5, gathered: 4, mean_cohesion: 0.73 },
+    };
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+
+    const found = await findClusters("t");
+    const current = await getClusters("t");
+
+    expect(found.cluster_count).toBe(2);
+    expect(current.evaluation?.gathered).toBe(4);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/clusters");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
   });
 
   it("rejects responses that do not match the contract", async () => {

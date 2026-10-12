@@ -104,6 +104,35 @@ export const duplicateReportSchema = z.object({
     .nullable(),
 });
 
+export const clusterReportSchema = z.object({
+  ran: z.boolean(),
+  cluster_count: z.number(),
+  member_count: z.number(),
+  threshold: z.number(),
+  neighbor_count: z.number(),
+  minimum_size: z.number(),
+  clusters: z.array(
+    z.object({
+      id: z.uuid(),
+      members: z.array(
+        z.object({
+          id: z.uuid(),
+          source: z.enum(["github_issue", "csv"]),
+          external_id: z.string(),
+          title: z.string(),
+        }),
+      ),
+    }),
+  ),
+  evaluation: z
+    .object({
+      labeled: z.number(),
+      gathered: z.number(),
+      mean_cohesion: z.number(),
+    })
+    .nullable(),
+});
+
 export const csvImportSchema = z.object({
   import_id: z.uuid(),
   imported_count: z.number(),
@@ -118,3 +147,4 @@ export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
 export type CsvImport = z.infer<typeof csvImportSchema>;
 export type EmbeddingStatus = z.infer<typeof embeddingStatusSchema>;
 export type DuplicateReport = z.infer<typeof duplicateReportSchema>;
+export type ClusterReport = z.infer<typeof clusterReportSchema>;
