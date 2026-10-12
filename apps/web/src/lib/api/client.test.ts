@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelIssueImport,
-  getCurrentImport,
+  findDuplicates,
   getCurrentEmbeddings,
+  getCurrentImport,
+  getDuplicates,
   getFeedback,
   getMe,
   getProduct,
@@ -219,6 +221,55 @@ describe("API client", () => {
     expect(current.embedded_count).toBe(12);
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/embeddings");
     expect(String(fetchMock.mock.calls[1][0])).toBe("http://api.test/v1/feedback/embeddings/current");
+  });
+
+  it("finds duplicates and reads the stored groups", async () => {
+    const report = {
+      ran: true,
+      exact_edges: 1,
+      semantic_edges: 2,
+      group_count: 3,
+      threshold: 0.86,
+      neighbor_count: 2,
+      groups: [
+        {
+          kind: "exact",
+          members: [
+            {
+              id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+              source: "csv",
+              external_id: "AW-SYN-001",
+              title: "Callback checklist",
+            },
+            {
+              id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
+              source: "csv",
+              external_id: "AW-SYN-002",
+              title: "Callback rejected",
+            },
+          ],
+        },
+      ],
+      evaluation: {
+        labeled: 3,
+        true_positives: 1,
+        false_positives: 0,
+        false_negatives: 1,
+        precision: 1,
+        recall: 0.5,
+      },
+    };
+    fetchMock.mockResolvedValueOnce(respond(200, report));
+    fetchMock.mockResolvedValueOnce(respond(200, { ...report, ran: true }));
+
+    const found = await findDuplicates("t");
+    const current = await getDuplicates("t");
+
+    expect(found.group_count).toBe(3);
+    expect(current.evaluation?.recall).toBe(0.5);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/feedback/duplicates");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[1][1]?.method).toBe("GET");
   });
 
   it("rejects responses that do not match the contract", async () => {

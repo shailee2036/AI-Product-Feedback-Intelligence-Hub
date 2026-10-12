@@ -6,12 +6,14 @@ import { getServerEnv } from "@/lib/server-env";
 import { ApiError, parseErrorDetail } from "./errors";
 import {
   csvImportSchema,
+  duplicateReportSchema,
   embeddingStatusSchema,
   feedbackPageSchema,
   importSchema,
   meSchema,
   productSchema,
   type CsvImport,
+  type DuplicateReport,
   type EmbeddingStatus,
   type FeedbackPage,
   type ImportJob,
@@ -121,6 +123,14 @@ export function startEmbeddings(accessToken: string): Promise<EmbeddingStatus> {
 
 export function getCurrentEmbeddings(accessToken: string): Promise<EmbeddingStatus> {
   return request("/v1/feedback/embeddings/current", embeddingStatusSchema, { accessToken });
+}
+
+export function findDuplicates(accessToken: string): Promise<DuplicateReport> {
+  return request("/v1/feedback/duplicates", duplicateReportSchema, { method: "POST", accessToken });
+}
+
+export function getDuplicates(accessToken: string): Promise<DuplicateReport> {
+  return request("/v1/feedback/duplicates", duplicateReportSchema, { accessToken });
 }
 
 export function registerGithubProduct(accessToken: string, repository: string): Promise<Product> {

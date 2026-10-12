@@ -72,6 +72,38 @@ export const embeddingStatusSchema = z.object({
   error_message: z.string().nullable(),
 });
 
+export const duplicateReportSchema = z.object({
+  ran: z.boolean(),
+  exact_edges: z.number(),
+  semantic_edges: z.number(),
+  group_count: z.number(),
+  threshold: z.number(),
+  neighbor_count: z.number(),
+  groups: z.array(
+    z.object({
+      kind: z.enum(["exact", "semantic", "mixed"]),
+      members: z.array(
+        z.object({
+          id: z.uuid(),
+          source: z.enum(["github_issue", "csv"]),
+          external_id: z.string(),
+          title: z.string(),
+        }),
+      ),
+    }),
+  ),
+  evaluation: z
+    .object({
+      labeled: z.number(),
+      true_positives: z.number(),
+      false_positives: z.number(),
+      false_negatives: z.number(),
+      precision: z.number().nullable(),
+      recall: z.number().nullable(),
+    })
+    .nullable(),
+});
+
 export const csvImportSchema = z.object({
   import_id: z.uuid(),
   imported_count: z.number(),
@@ -85,3 +117,4 @@ export type FeedbackPage = z.infer<typeof feedbackPageSchema>;
 export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
 export type CsvImport = z.infer<typeof csvImportSchema>;
 export type EmbeddingStatus = z.infer<typeof embeddingStatusSchema>;
+export type DuplicateReport = z.infer<typeof duplicateReportSchema>;
