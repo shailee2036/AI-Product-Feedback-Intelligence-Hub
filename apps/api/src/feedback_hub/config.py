@@ -47,6 +47,14 @@ class Settings(BaseSettings):
         }
     )
 
+    huggingface_token: SecretStr | None = None
+    huggingface_api_base_url: str = "https://router.huggingface.co"
+    huggingface_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    huggingface_embedding_dimensions: Literal[384] = 384
+    huggingface_embedding_version: str = "1"
+    huggingface_timeout_seconds: float = Field(default=30.0, gt=0)
+    huggingface_embedding_batch_size: int = Field(default=16, ge=1, le=32)
+
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)
     csv_max_feedback_chars: int = Field(default=10_000, gt=0)
