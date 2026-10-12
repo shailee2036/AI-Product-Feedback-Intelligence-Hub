@@ -305,6 +305,7 @@ describe("API client", () => {
           brief: null,
           canonical: null,
           duplicate_warnings: [],
+          suggestion: null,
           members: [
             {
               id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",

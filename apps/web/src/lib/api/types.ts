@@ -175,6 +175,13 @@ export const clusterReportSchema = z.object({
           in_theme: z.boolean(),
         }),
       ),
+      suggestion: z
+        .object({
+          comment: z.string(),
+          labels: z.array(z.string()),
+          saved: z.boolean(),
+        })
+        .nullable(),
       members: z.array(
         z.object({
           id: z.uuid(),

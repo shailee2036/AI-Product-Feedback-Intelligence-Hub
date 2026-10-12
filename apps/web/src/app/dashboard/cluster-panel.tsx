@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import type { ClusterReport } from "@/lib/api/types";
 
-import { decideTheme, editBrief, findThemes, mergeTheme, nameThemes, renameTheme, splitTheme, writeBrief, type ClusterState } from "./actions";
+import { decideTheme, editBrief, findThemes, mergeTheme, nameThemes, renameTheme, saveSuggestion, splitTheme, writeBrief, type ClusterState } from "./actions";
 
 const VISIBLE_THEMES = 8;
 const VISIBLE_MEMBERS = 4;
@@ -477,7 +477,65 @@ function CanonicalIssue({ cluster }: { cluster: ClusterReport["clusters"][number
       {canonical || warnings.length > 0 ? (
         <span>Recommendation only. No GitHub issue is created, closed, or commented.</span>
       ) : null}
+      {canonical && cluster.suggestion ? (
+        <SuggestionDetails clusterId={cluster.id} status={cluster.status} suggestion={cluster.suggestion} />
+      ) : null}
     </div>
+  );
+}
+
+function SuggestionDetails({
+  clusterId,
+  status,
+  suggestion,
+}: {
+  clusterId: string;
+  status: ClusterReport["clusters"][number]["status"];
+  suggestion: NonNullable<ClusterReport["clusters"][number]["suggestion"]>;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="whitespace-pre-wrap">{suggestion.comment}</span>
+      <span>
+        {suggestion.labels.length > 0
+          ? `Suggested labels: ${suggestion.labels.join(", ")}`
+          : "No extra labels suggested."}
+      </span>
+      {suggestion.saved ? (
+        <span>Saved locally. Nothing was posted to GitHub.</span>
+      ) : status === "approved" ? (
+        <SuggestionForm clusterId={clusterId} />
+      ) : (
+        <span>Approve the theme to save this suggestion locally.</span>
+      )}
+    </div>
+  );
+}
+
+function SuggestionForm({ clusterId }: { clusterId: string }) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState(saveSuggestion, {});
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) router.refresh();
+    wasPending.current = pending;
+  }, [pending, router]);
+  return (
+    <form action={formAction} className="flex items-center gap-2">
+      <input type="hidden" name="clusterId" value={clusterId} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-semibold dark:border-zinc-700"
+      >
+        {pending ? "Saving…" : "Save suggestion"}
+      </button>
+      {state.error ? (
+        <p role="alert" className="text-xs text-red-700 dark:text-red-300">
+          {state.error}
+        </p>
+      ) : null}
+    </form>
   );
 }
 

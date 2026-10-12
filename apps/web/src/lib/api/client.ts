@@ -199,6 +199,16 @@ export function splitCluster(
   });
 }
 
+export function saveClusterSuggestion(
+  accessToken: string,
+  clusterId: string,
+): Promise<ClusterReport> {
+  return request(`/v1/feedback/clusters/${clusterId}/suggestion`, clusterReportSchema, {
+    method: "POST",
+    accessToken,
+  });
+}
+
 export function writeClusterBrief(accessToken: string, clusterId: string): Promise<ClusterReport> {
   return request(`/v1/feedback/clusters/${clusterId}/brief`, clusterReportSchema, {
     method: "POST",
