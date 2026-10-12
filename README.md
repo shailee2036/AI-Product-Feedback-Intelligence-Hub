@@ -84,6 +84,7 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | GET | `/metrics` | none (cluster-internal) | Prometheus metrics |
 | POST | `/v1/repositories/eligibility` | none | Check whether a public repository is eligible |
 | GET | `/v1/me` | user | Current user; creates the workspace on first call |
+| GET | `/v1/audit` | user | Recent workspace actions; append-only |
 | GET | `/v1/product` | user | The workspace's registered product |
 | POST | `/v1/product/github` | user | Register the workspace product from an eligible repository |
 | POST | `/v1/imports` | user | Import the registered repository's most recently updated issues |
@@ -135,6 +136,8 @@ A new issue draft is available only after the maintainer chooses "No suitable ex
 approved theme. The draft lists every open issue already in the theme, and any open issue outside
 it with similarity of at least 0.86. Saving requires an explicit confirmation and keeps the title
 and body in the workspace. Asking to create the issue on GitHub is rejected.
+The workspace also keeps the latest 20 actions, newest first. Reading that list does not add an
+event, and the stored rows cannot be updated or deleted.
 Feedback bodies stay in the database.
 
 Validate the seed fixtures:

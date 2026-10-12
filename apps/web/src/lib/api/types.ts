@@ -217,6 +217,17 @@ export const newIssuePreviewSchema = z.object({
   warnings: z.array(duplicateWarningSchema),
 });
 
+export const auditReportSchema = z.object({
+  events: z.array(
+    z.object({
+      id: z.number(),
+      action: z.string(),
+      summary: z.string(),
+      created_at: z.string(),
+    }),
+  ),
+});
+
 export const csvImportSchema = z.object({
   import_id: z.uuid(),
   imported_count: z.number(),
@@ -233,3 +244,4 @@ export type EmbeddingStatus = z.infer<typeof embeddingStatusSchema>;
 export type DuplicateReport = z.infer<typeof duplicateReportSchema>;
 export type ClusterReport = z.infer<typeof clusterReportSchema>;
 export type NewIssuePreview = z.infer<typeof newIssuePreviewSchema>;
+export type AuditReport = z.infer<typeof auditReportSchema>;

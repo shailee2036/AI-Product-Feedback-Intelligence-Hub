@@ -6,6 +6,7 @@ import {
   decideCluster,
   findClusters,
   findDuplicates,
+  getAudit,
   getClusters,
   getCurrentEmbeddings,
   getCurrentImport,
@@ -74,6 +75,27 @@ describe("API client", () => {
     expect(String(url)).toBe("http://api.test/v1/me");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer token-123");
     expect(init?.cache).toBe("no-store");
+  });
+
+  it("reads the append-only activity list", async () => {
+    fetchMock.mockResolvedValue(
+      respond(200, {
+        events: [
+          {
+            id: 8,
+            action: "cluster.approved",
+            summary: "Approved a theme.",
+            created_at: "2026-10-12T15:04:00Z",
+          },
+        ],
+      }),
+    );
+
+    const report = await getAudit("t");
+
+    expect(report.events[0]?.summary).toBe("Approved a theme.");
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://api.test/v1/audit");
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("GET");
   });
 
   it("returns null when no product is registered", async () => {
