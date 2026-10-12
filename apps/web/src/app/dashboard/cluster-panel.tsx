@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import type { ClusterReport } from "@/lib/api/types";
 
-import { decideTheme, editBrief, findThemes, mergeTheme, nameThemes, renameTheme, saveSuggestion, splitTheme, writeBrief, type ClusterState } from "./actions";
+import { confirmIssueDraft, decideTheme, editBrief, findThemes, mergeTheme, nameThemes, previewIssueDraft, renameTheme, saveSuggestion, splitTheme, writeBrief, type ClusterState } from "./actions";
 
 const VISIBLE_THEMES = 8;
 const VISIBLE_MEMBERS = 4;
@@ -70,6 +70,7 @@ function ThemeRow({
       ) : null}
       <span className="text-zinc-500">{scoreLine(cluster.score)}</span>
       <CanonicalIssue cluster={cluster} />
+      <NewIssueDraft cluster={cluster} />
       {cluster.brief ? <BriefDetails cluster={cluster} /> : null}
       <span className="text-zinc-800 dark:text-zinc-200">
         {cluster.members
@@ -451,6 +452,130 @@ function describe(report: ClusterReport): string {
     return `${report.cluster_count} themes covering ${report.member_count} rows. Names are still blank.${scores}`;
   }
   return `${report.cluster_count} themes covering ${report.member_count} rows. ${report.named_count} named. ${report.approved_count} approved.${scores}`;
+}
+
+function NewIssueDraft({ cluster }: { cluster: ClusterReport["clusters"][number] }) {
+  const draft = cluster.new_issue;
+  if (draft) {
+    return (
+      <div className="flex flex-col gap-1 text-zinc-600 dark:text-zinc-400">
+        <DraftLabels labels={draft.labels} />
+        <DraftWarnings warnings={draft.warnings} />
+        <span>Saved locally. No GitHub issue was created.</span>
+        {cluster.status === "approved" ? (
+          <DraftEditor clusterId={cluster.id} title={draft.title} body={draft.body} />
+        ) : (
+          <>
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">{draft.title}</span>
+            <span className="whitespace-pre-wrap">{draft.body}</span>
+          </>
+        )}
+      </div>
+    );
+  }
+  if (cluster.status !== "approved") return null;
+  return <DraftPreview clusterId={cluster.id} />;
+}
+
+function DraftPreview({ clusterId }: { clusterId: string }) {
+  const [state, formAction, pending] = useActionState(previewIssueDraft, {});
+  return (
+    <div className="flex flex-col gap-2 text-zinc-600 dark:text-zinc-400">
+      {state.preview ? (
+        <DraftEditor
+          clusterId={clusterId}
+          title={state.preview.title}
+          body={state.preview.body}
+          labels={state.preview.labels}
+          warnings={state.preview.warnings}
+        />
+      ) : (
+        <form action={formAction}>
+          <input type="hidden" name="clusterId" value={clusterId} />
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-semibold dark:border-zinc-700"
+          >
+            {pending ? "Drafting…" : "No suitable existing issue"}
+          </button>
+        </form>
+      )}
+      {state.error ? <DraftError message={state.error} /> : null}
+    </div>
+  );
+}
+
+function DraftEditor({
+  clusterId,
+  title,
+  body,
+  labels,
+  warnings,
+}: {
+  clusterId: string;
+  title: string;
+  body: string;
+  labels?: string[];
+  warnings?: ClusterReport["clusters"][number]["duplicate_warnings"];
+}) {
+  const router = useRouter();
+  const [state, formAction, pending] = useActionState(confirmIssueDraft, {});
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) router.refresh();
+    wasPending.current = pending;
+  }, [pending, router]);
+  return (
+    <form action={formAction} className="flex flex-col gap-2">
+      <input type="hidden" name="clusterId" value={clusterId} />
+      {warnings ? <DraftWarnings warnings={warnings} /> : null}
+      {labels ? <DraftLabels labels={labels} /> : null}
+      <BriefField name="title" label="New issue title" defaultValue={title} />
+      <BriefField name="body" label="New issue body" defaultValue={body} />
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" name="confirmed" value="yes" />
+        I confirm this draft stays in the workspace and is not created on GitHub.
+      </label>
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-semibold dark:border-zinc-700"
+        >
+          {pending ? "Saving…" : "Save draft"}
+        </button>
+        {state.error ? <DraftError message={state.error} /> : null}
+      </div>
+    </form>
+  );
+}
+
+function DraftLabels({ labels }: { labels: string[] }) {
+  return (
+    <span>{labels.length > 0 ? `Suggested labels: ${labels.join(", ")}` : "No extra labels suggested."}</span>
+  );
+}
+
+function DraftWarnings({
+  warnings,
+}: {
+  warnings: ClusterReport["clusters"][number]["duplicate_warnings"];
+}) {
+  if (warnings.length === 0) return <span>No similar open issue was found.</span>;
+  return (
+    <span>
+      Similar open issues: <WarningList warnings={warnings} />
+    </span>
+  );
+}
+
+function DraftError({ message }: { message: string }) {
+  return (
+    <p role="alert" className="text-xs text-red-700 dark:text-red-300">
+      {message}
+    </p>
+  );
 }
 
 function CanonicalIssue({ cluster }: { cluster: ClusterReport["clusters"][number] }) {
