@@ -68,6 +68,7 @@ function ThemeRow({
       {cluster.summary ? (
         <span className="text-zinc-600 dark:text-zinc-400">{cluster.summary}</span>
       ) : null}
+      <span className="text-zinc-500">{scoreLine(cluster.score)}</span>
       <span className="text-zinc-800 dark:text-zinc-200">
         {cluster.members
           .slice(0, VISIBLE_MEMBERS)
@@ -314,10 +315,19 @@ function describe(report: ClusterReport): string {
   if (!report.ran) {
     return "Group related feedback into themes. Every original row is kept.";
   }
+  const scores =
+    " Each score averages size, recent rows, source mix, duplicate-adjusted volume, and completeness.";
   if (report.named_count === 0) {
-    return `${report.cluster_count} themes covering ${report.member_count} rows. Names are still blank.`;
+    return `${report.cluster_count} themes covering ${report.member_count} rows. Names are still blank.${scores}`;
   }
-  return `${report.cluster_count} themes covering ${report.member_count} rows. ${report.named_count} named. ${report.approved_count} approved.`;
+  return `${report.cluster_count} themes covering ${report.member_count} rows. ${report.named_count} named. ${report.approved_count} approved.${scores}`;
+}
+
+function scoreLine(score: ClusterReport["clusters"][number]["score"]): string {
+  const percent = Math.round(score.score * 100);
+  const sources = score.source_count === 1 ? "1 source" : `${score.source_count} sources`;
+  const name = score.named ? "named" : "unnamed";
+  return `Score ${percent}%. ${score.member_count} rows · ${score.recent_count} in the last ${score.recent_days} days · ${sources} · ${score.unique_count} after duplicates · ${score.embedded_count} embedded · ${name}`;
 }
 
 function formatEvaluation(report: ClusterReport): string {

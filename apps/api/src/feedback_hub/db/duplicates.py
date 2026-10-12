@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import text
@@ -16,6 +17,7 @@ class DedupeItem:
     body: str
     language: str | None
     content_hash: str | None
+    source_created_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,8 +41,8 @@ async def load_feedback_items(conn: AsyncConnection) -> list[DedupeItem]:
     rows = (
         await conn.execute(
             text(
-                "select id, source, external_id, title, body, language, content_hash "
-                "from public.feedback_items"
+                "select id, source, external_id, title, body, language, content_hash, "
+                "source_created_at from public.feedback_items"
             )
         )
     ).all()
@@ -70,6 +72,22 @@ async def load_embedding_pairs(
         (row._mapping["left_id"], row._mapping["right_id"], float(row._mapping["score"]))
         for row in rows
     ]
+
+
+async def load_embedded_item_ids(
+    conn: AsyncConnection, *, provider: str, model: str, model_version: str
+) -> list[UUID]:
+    rows = (
+        await conn.execute(
+            text(
+                "select feedback_item_id from public.feedback_embeddings "
+                "where provider = :provider and model = :model "
+                "and model_version = :model_version"
+            ),
+            {"provider": provider, "model": model, "model_version": model_version},
+        )
+    ).all()
+    return [row._mapping["feedback_item_id"] for row in rows]
 
 
 async def replace_duplicate_edges(

@@ -292,6 +292,16 @@ describe("API client", () => {
           name: "Import progress",
           summary: "People want import progress.",
           status: "open",
+          score: {
+            member_count: 1,
+            recent_count: 1,
+            recent_days: 90,
+            source_count: 1,
+            unique_count: 1,
+            embedded_count: 1,
+            named: true,
+            score: 0.62,
+          },
           members: [
             {
               id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",

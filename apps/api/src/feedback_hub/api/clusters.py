@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -22,7 +23,13 @@ from feedback_hub.db.clusters import (
     set_cluster_status,
     split_cluster_members,
 )
-from feedback_hub.db.duplicates import DedupeItem, load_embedding_pairs, load_feedback_items
+from feedback_hub.db.duplicates import (
+    DedupeItem,
+    load_duplicate_edges,
+    load_embedded_item_ids,
+    load_embedding_pairs,
+    load_feedback_items,
+)
 from feedback_hub.db.engine import Database, get_database
 from feedback_hub.db.products import RegisteredProduct, get_product
 from feedback_hub.db.workspaces import Workspace, ensure_workspace, record_audit_event
@@ -30,6 +37,7 @@ from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_g
 from feedback_hub.feedback.groq import GroqClient, GroqError
 from feedback_hub.feedback.normalize import prepare_text
 from feedback_hub.feedback.theme_names import naming_prompt, parse_theme_names, representative_lines
+from feedback_hub.feedback.theme_scores import ScoreFact, score_cluster
 
 router = APIRouter(tags=["clusters"])
 
@@ -54,12 +62,24 @@ class ClusterMember(BaseModel):
     title: str
 
 
+class ClusterScore(BaseModel):
+    member_count: int
+    recent_count: int
+    recent_days: int
+    source_count: int
+    unique_count: int
+    embedded_count: int
+    named: bool
+    score: float
+
+
 class ClusterGroup(BaseModel):
     id: UUID
     name: str | None
     summary: str | None
     status: ClusterStatus
     members: list[ClusterMember]
+    score: ClusterScore
 
 
 class ClusterEvaluation(BaseModel):
@@ -150,12 +170,15 @@ async def find_clusters(
             model_version=settings.gemini_embedding_version,
         )
         stored = await load_stored_clusters(conn)
+        edges, embedded = await _score_inputs(conn, settings)
         report = _report(
             items,
             stored,
             threshold=settings.cluster_similarity_threshold,
             neighbor_count=settings.cluster_neighbor_count,
             minimum_size=settings.cluster_minimum_size,
+            edges=edges,
+            embedded=embedded,
         )
         await record_audit_event(
             conn,
@@ -185,12 +208,15 @@ async def read_clusters(
             return ClusterReport.idle(settings)
         items = await load_feedback_items(conn)
         stored = await load_stored_clusters(conn)
+        edges, embedded = await _score_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
     )
 
 
@@ -244,12 +270,15 @@ async def name_clusters(
                 target_id=str(product.id),
                 metadata={"named_count": len(to_save)},
             )
+        edges, embedded = await _score_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
     )
 
 
@@ -298,12 +327,15 @@ async def relabel_theme(
             target_id=str(cluster_id),
             metadata={"product_id": str(product.id)},
         )
+        edges, embedded = await _score_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
     )
 
 
@@ -332,12 +364,15 @@ async def decide_theme(
             target_id=str(cluster_id),
             metadata={"product_id": str(product.id)},
         )
+        edges, embedded = await _score_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
     )
 
 
@@ -369,12 +404,15 @@ async def merge_theme(
             target_id=str(body.target_id),
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
+        edges, embedded = await _score_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
     )
 
 
@@ -407,12 +445,15 @@ async def split_theme(
             target_id=str(created),
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
+        edges, embedded = await _score_inputs(conn, settings)
     return _report(
         items,
         stored,
         threshold=run.threshold,
         neighbor_count=run.neighbor_count,
         minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
     )
 
 
@@ -487,8 +528,13 @@ def _report(
     threshold: float,
     neighbor_count: int,
     minimum_size: int,
+    edges: list[tuple[UUID, UUID]],
+    embedded: set[UUID],
+    now: datetime | None = None,
 ) -> ClusterReport:
     by_id = {item.id: item for item in items}
+    facts = {item.id: ScoreFact(item.source, item.source_created_at) for item in items}
+    moment = now or datetime.now(UTC)
     clusters: list[ClusterGroup] = []
     for cluster in stored[:CLUSTER_LIMIT]:
         members = [
@@ -504,6 +550,14 @@ def _report(
                 summary=cluster.summary,
                 status=cluster.status,
                 members=members,
+                score=_cluster_score(
+                    tuple(member.id for member in members),
+                    facts=facts,
+                    embedded=embedded,
+                    edges=edges,
+                    named=cluster.name is not None,
+                    now=moment,
+                ),
             )
         )
     identities = [(str(item.id), item.external_id) for item in items]
@@ -521,6 +575,50 @@ def _report(
         clusters=clusters,
         evaluation=None if scored is None else _evaluation(scored),
     )
+
+
+def _cluster_score(
+    member_ids: tuple[UUID, ...],
+    *,
+    facts: dict[UUID, ScoreFact],
+    embedded: set[UUID],
+    edges: list[tuple[UUID, UUID]],
+    named: bool,
+    now: datetime,
+) -> ClusterScore:
+    factors = score_cluster(
+        member_ids,
+        facts=facts,
+        embedded=embedded,
+        edges=edges,
+        named=named,
+        now=now,
+    )
+    return ClusterScore(
+        member_count=factors.member_count,
+        recent_count=factors.recent_count,
+        recent_days=factors.recent_days,
+        source_count=factors.source_count,
+        unique_count=factors.unique_count,
+        embedded_count=factors.embedded_count,
+        named=factors.named,
+        score=factors.score,
+    )
+
+
+async def _score_inputs(
+    conn: AsyncConnection, settings: Settings
+) -> tuple[list[tuple[UUID, UUID]], set[UUID]]:
+    edges = [(edge.left_item_id, edge.right_item_id) for edge in await load_duplicate_edges(conn)]
+    embedded = set(
+        await load_embedded_item_ids(
+            conn,
+            provider=PROVIDER,
+            model=settings.gemini_embedding_model,
+            model_version=settings.gemini_embedding_version,
+        )
+    )
+    return edges, embedded
 
 
 def _member(item: DedupeItem) -> ClusterMember:

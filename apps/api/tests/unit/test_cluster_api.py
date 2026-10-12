@@ -51,6 +51,10 @@ class _Conn:
         sql = " ".join(str(statement).split())
         if "from public.feedback_items" in sql:
             return _Result([_Row(**item) for item in self.items])
+        if sql.startswith("select feedback_item_id from public.feedback_embeddings"):
+            return _Result([_Row(feedback_item_id=item["id"]) for item in self.items])
+        if "from public.duplicate_edges" in sql:
+            return _Result()
         if "from public.feedback_embeddings" in sql:
             return _Result(
                 [
@@ -316,6 +320,14 @@ async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
     assert body["evaluation"]["gathered"] == 1
     assert body["evaluation"]["labeled"] == 1
     assert len(body["clusters"][0]["members"]) == 3
+    score = body["clusters"][0]["score"]
+    assert score["member_count"] == 3
+    assert score["recent_count"] == 0
+    assert score["source_count"] == 1
+    assert score["unique_count"] == 3
+    assert score["embedded_count"] == 3
+    assert score["named"] is False
+    assert score["score"] == 0.46
     assert again.json()["cluster_count"] == 1
     assert len(conn.clusters) == 1
     assert audits[-1]["action"] == "cluster.completed"
