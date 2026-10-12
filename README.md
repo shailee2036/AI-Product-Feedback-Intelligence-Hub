@@ -38,6 +38,17 @@ pytest -m "not integration"
 uvicorn feedback_hub.main:app --reload
 ```
 
+### API chart
+
+The chart in `deploy/charts/api` runs the API on CPU with requests, limits, and health probes. It does not contain credentials. Create a Secret named `feedback-hub-api` in the target namespace, then render the chart with an immutable image tag:
+
+```bash
+helm lint deploy/charts/api --set image.tag="$(git rev-parse HEAD)"
+helm template feedback-hub-api deploy/charts/api --set image.tag="$(git rev-parse HEAD)"
+```
+
+`latest` is rejected. Nothing in this chart is installed to a cluster by CI.
+
 ### Frontend
 
 Requires Node.js 22 or newer and the backend running on `http://127.0.0.1:8000`.

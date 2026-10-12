@@ -1,0 +1,26 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/shailee2036/feedback-hub-api
+  # Immutable commit SHA. "latest" is rejected. A digest overrides the tag.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8000
+
+# Name of a Secret created outside this chart. Expected keys include
+# FEEDBACK_HUB_DATABASE_URL, FEEDBACK_HUB_SUPABASE_URL, FEEDBACK_HUB_GEMINI_API_KEY,
+# and FEEDBACK_HUB_GROQ_API_KEY. Do not put those values here.
+existingSecret: feedback-hub-api
+
+environment: staging
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

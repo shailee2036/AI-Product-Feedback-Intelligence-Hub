@@ -1,0 +1,6 @@
+apiVersion: v2
+name: feedback-hub-api
+description: CPU-only API chart. Credentials come from an existing Secret, not from this chart.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
