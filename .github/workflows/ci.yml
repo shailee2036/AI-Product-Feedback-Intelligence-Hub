@@ -238,6 +238,14 @@ jobs:
           tar -xzf kubeconform.tar.gz
           sudo mv kubeconform /usr/local/bin/kubeconform
           kubeconform -v
+      - name: Install Conftest
+        run: |
+          version=0.71.1
+          curl -fsSL -o conftest.tar.gz "https://github.com/open-policy-agent/conftest/releases/download/v${version}/conftest_${version}_Linux_x86_64.tar.gz"
+          echo "c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985  conftest.tar.gz" | sha256sum -c -
+          tar -xzf conftest.tar.gz
+          sudo mv conftest /usr/local/bin/conftest
+          conftest --version
       - name: Lint, render, and validate the API chart
         run: |
           tag="${GITHUB_SHA}"
@@ -252,3 +260,8 @@ jobs:
             exit 1
           fi
           kubeconform -strict -summary -kubernetes-version 1.37.0 rendered.yaml
+          conftest test --policy deploy/policy rendered.yaml
+          if conftest test --policy deploy/policy deploy/policy/testdata/rejected.yaml; then
+            echo "Policy did not reject the fixture."
+            exit 1
+          fi

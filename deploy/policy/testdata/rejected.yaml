@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: embedded
+stringData:
+  placeholder: example
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rejected
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+        - name: api
+          image: ghcr.io/example/api:latest
+          securityContext:
+            privileged: true
+          env:
+            - name: API_KEY
+              value: example
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
