@@ -99,14 +99,81 @@ async def latest_analysis_run(conn: AsyncConnection) -> AnalysisRun | None:
     return AnalysisRun(**row._mapping) if row else None
 
 
-async def load_cluster_members(conn: AsyncConnection) -> list[tuple[UUID, UUID]]:
+@dataclass(frozen=True, slots=True)
+class StoredCluster:
+    id: UUID
+    name: str | None
+    summary: str | None
+    name_edited: bool
+    member_ids: tuple[UUID, ...]
+
+
+async def load_stored_clusters(conn: AsyncConnection) -> list[StoredCluster]:
     rows = (
         await conn.execute(
             text(
-                "select c.id as cluster_id, m.feedback_item_id from public.candidate_clusters c "
+                "select c.id as cluster_id, c.name, c.summary, c.name_edited, "
+                "m.feedback_item_id from public.candidate_clusters c "
                 "join public.candidate_cluster_members m on m.cluster_id = c.id "
                 "order by c.created_at, m.feedback_item_id"
             )
         )
     ).all()
-    return [(row._mapping["cluster_id"], row._mapping["feedback_item_id"]) for row in rows]
+    order: list[UUID] = []
+    members: dict[UUID, list[UUID]] = {}
+    labels: dict[UUID, tuple[str | None, str | None, bool]] = {}
+    for row in rows:
+        mapping = row._mapping
+        cluster_id = mapping["cluster_id"]
+        if cluster_id not in members:
+            order.append(cluster_id)
+            members[cluster_id] = []
+            labels[cluster_id] = (
+                _optional_text(mapping.get("name")),
+                _optional_text(mapping.get("summary")),
+                bool(mapping.get("name_edited")),
+            )
+        members[cluster_id].append(mapping["feedback_item_id"])
+    return [
+        StoredCluster(
+            id=cluster_id,
+            name=labels[cluster_id][0],
+            summary=labels[cluster_id][1],
+            name_edited=labels[cluster_id][2],
+            member_ids=tuple(members[cluster_id]),
+        )
+        for cluster_id in order
+    ]
+
+
+async def save_theme_names(
+    conn: AsyncConnection,
+    names: list[tuple[UUID, str, str]],
+    *,
+    provider: str,
+    model: str,
+) -> None:
+    """Fill blank names. A name that is already set, or marked edited, stays put."""
+    if not names:
+        return
+    await conn.execute(
+        text(
+            "update public.candidate_clusters set name = :name, summary = :summary, "
+            "name_provider = :provider, name_model = :model "
+            "where id = :id and name is null and name_edited = false"
+        ),
+        [
+            {
+                "id": cluster_id,
+                "name": name,
+                "summary": summary,
+                "provider": provider,
+                "model": model,
+            }
+            for cluster_id, name, summary in names
+        ],
+    )
+
+
+def _optional_text(value: object) -> str | None:
+    return value if isinstance(value, str) else None

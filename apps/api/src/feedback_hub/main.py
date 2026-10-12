@@ -24,6 +24,7 @@ from feedback_hub.auth import SupabaseJwtVerifier
 from feedback_hub.config import Settings, get_settings
 from feedback_hub.db.engine import Database
 from feedback_hub.feedback.embeddings import EmbeddingClient, build_gemini_client
+from feedback_hub.feedback.groq import GroqClient, build_groq_client
 from feedback_hub.github.client import GitHubClient, build_http_client
 from feedback_hub.observability import metrics_middleware
 
@@ -42,6 +43,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             base_url=settings.gemini_api_base_url,
             model=settings.gemini_embedding_model,
             dimensions=settings.gemini_embedding_dimensions,
+        )
+        groq_http = await stack.enter_async_context(build_groq_client(settings))
+        app.state.groq = GroqClient(
+            groq_http,
+            base_url=settings.groq_api_base_url,
+            model=settings.groq_theme_model,
         )
 
         if settings.supabase_url is not None:

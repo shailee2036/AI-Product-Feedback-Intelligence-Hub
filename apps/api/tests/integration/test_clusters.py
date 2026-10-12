@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import asyncpg
@@ -56,7 +57,33 @@ async def test_clustering_groups_close_vectors(
     github: respx.Router,
     database_url: str,
 ) -> None:
-    del github
+    github.post("https://api.groq.com/openai/v1/chat/completions").respond(
+        200,
+        json={
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "themes": [
+                                    {
+                                        "id": "1",
+                                        "name": "Import progress",
+                                        "summary": "People want import progress and rejected rows.",
+                                    },
+                                    {
+                                        "id": "2",
+                                        "name": "Reconnect warning",
+                                        "summary": "People want a warning after reconnect.",
+                                    },
+                                ]
+                            }
+                        )
+                    }
+                }
+            ]
+        },
+    )
     headers = bearer(tokens.token(await create_user("themes-rows@example.com")))
     created = await api.post(
         "/v1/product/github", json={"repository": "appwrite/appwrite"}, headers=headers
@@ -72,6 +99,8 @@ async def test_clustering_groups_close_vectors(
 
     missing = await api.post("/v1/feedback/clusters", headers=headers)
     assert missing.status_code == 409
+    unnamed = await api.post("/v1/feedback/clusters/names", headers=headers)
+    assert unnamed.status_code == 409
 
     conn = await asyncpg.connect(database_url)
     try:
@@ -120,11 +149,31 @@ async def test_clustering_groups_close_vectors(
     current = await api.get("/v1/feedback/clusters", headers=headers)
     assert current.json()["cluster_count"] == 2
 
+    named = await api.post("/v1/feedback/clusters/names", headers=headers)
+    assert named.status_code == 200, named.text
+    assert named.json()["named_count"] == 2
+    names = {cluster["name"] for cluster in named.json()["clusters"]}
+    assert names == {"Import progress", "Reconnect warning"}
+
+    repeated = await api.post("/v1/feedback/clusters/names", headers=headers)
+    assert repeated.status_code == 200
+    assert repeated.json()["named_count"] == 2
+    groq_calls = [
+        call for call in github.calls if str(call.request.url).endswith("/chat/completions")
+    ]
+    assert len(groq_calls) == 1
+
     conn = await asyncpg.connect(database_url)
     try:
         stored = await conn.fetchval(
             "select count(*) from public.candidate_clusters where product_id = $1", product_id
         )
+        filled = await conn.fetchval(
+            "select count(*) from public.candidate_clusters "
+            "where product_id = $1 and name is not null and name_edited = false",
+            product_id,
+        )
     finally:
         await conn.close()
     assert stored == 2
+    assert filled == 2

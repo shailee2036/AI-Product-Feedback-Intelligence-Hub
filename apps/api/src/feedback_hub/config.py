@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     cluster_neighbor_count: int = Field(default=3, ge=1, le=10)
     cluster_minimum_size: int = Field(default=3, ge=2, le=20)
 
+    groq_api_key: SecretStr | None = None
+    groq_api_base_url: str = "https://api.groq.com/openai/v1"
+    groq_theme_model: str = "openai/gpt-oss-20b"
+    groq_timeout_seconds: float = Field(default=12.0, gt=0)
+
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)
     csv_max_feedback_chars: int = Field(default=10_000, gt=0)

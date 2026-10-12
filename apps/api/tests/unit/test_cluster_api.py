@@ -5,12 +5,14 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from feedback_hub.auth import SupabaseJwtVerifier
 from feedback_hub.config import Settings
 from feedback_hub.db.engine import get_database
 from feedback_hub.db.products import RegisteredProduct
 from feedback_hub.db.workspaces import Workspace
+from feedback_hub.feedback.groq import GroqError
 from feedback_hub.main import create_app
 from tests.auth_helpers import SUPABASE_URL, TokenFactory
 
@@ -41,6 +43,7 @@ class _Conn:
         self.pairs = pairs
         self.run: dict[str, Any] | None = None
         self.clusters: list[tuple[UUID, list[UUID]]] = []
+        self.labels: dict[UUID, tuple[str | None, str | None, bool]] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -58,6 +61,7 @@ class _Conn:
             self.clusters.clear()
             return _Result()
         if sql.startswith("delete from public.candidate_clusters"):
+            self.labels.clear()
             return _Result()
         if sql.startswith("delete from public.analysis_runs"):
             self.run = None
@@ -90,12 +94,29 @@ class _Conn:
                     )
                 ]
             )
+        if sql.startswith("update public.candidate_clusters") and isinstance(params, list):
+            for row in params:
+                if not isinstance(row, dict):
+                    continue
+                cluster_id = row["id"]
+                current = self.labels.get(cluster_id, (None, None, False))
+                if current[0] is None and not current[2]:
+                    self.labels[cluster_id] = (row["name"], row["summary"], False)
+            return _Result()
         if "from public.candidate_clusters" in sql:
-            rows = [
-                _Row(cluster_id=cluster_id, feedback_item_id=member_id)
-                for cluster_id, member_ids in self.clusters
-                for member_id in member_ids
-            ]
+            rows: list[_Row] = []
+            for cluster_id, member_ids in self.clusters:
+                name, summary, edited = self.labels.get(cluster_id, (None, None, False))
+                rows.extend(
+                    _Row(
+                        cluster_id=cluster_id,
+                        feedback_item_id=member_id,
+                        name=name,
+                        summary=summary,
+                        name_edited=edited,
+                    )
+                    for member_id in member_ids
+                )
             return _Result(rows)
         raise AssertionError(sql)
 
@@ -145,6 +166,7 @@ async def cluster_api(monkeypatch: pytest.MonkeyPatch) -> Any:
         database_url=None,
         supabase_url=SUPABASE_URL,
         gemini_api_key=None,
+        groq_api_key=SecretStr("groq-test-key"),
         cluster_similarity_threshold=0.82,
         cluster_neighbor_count=3,
         cluster_minimum_size=3,
@@ -171,6 +193,23 @@ async def cluster_api(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr("feedback_hub.api.clusters.ensure_workspace", workspace)
     monkeypatch.setattr("feedback_hub.api.clusters.get_product", product)
     monkeypatch.setattr("feedback_hub.api.clusters.record_audit_event", audit)
+
+    class _Groq:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+            self.fail: Exception | None = None
+
+        async def complete(self, prompt: str) -> str:
+            self.prompts.append(prompt)
+            if self.fail is not None:
+                raise self.fail
+            return (
+                '{"themes":[{"id":"1","name":"Import progress",'
+                '"summary":"People want import progress and rejected rows."}]}'
+            )
+
+    groq = _Groq()
+    app.state.groq = groq
     tokens = TokenFactory()
     async with httpx.AsyncClient() as http:
         app.state.jwt_verifier = SupabaseJwtVerifier(
@@ -182,11 +221,11 @@ async def cluster_api(monkeypatch: pytest.MonkeyPatch) -> Any:
         )
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-            yield client, tokens, conn, holder, audits
+            yield client, tokens, conn, holder, audits, groq, settings
 
 
 async def test_clustering_requires_a_product(cluster_api: Any) -> None:
-    client, tokens, _conn, holder, _audits = cluster_api
+    client, tokens, _conn, holder, _audits, _groq, _settings = cluster_api
     holder["product"] = None
     headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
 
@@ -196,7 +235,7 @@ async def test_clustering_requires_a_product(cluster_api: Any) -> None:
 
 
 async def test_clustering_requires_feedback(cluster_api: Any) -> None:
-    client, tokens, conn, _holder, _audits = cluster_api
+    client, tokens, conn, _holder, _audits, _groq, _settings = cluster_api
     conn.items = []
     headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
 
@@ -207,7 +246,7 @@ async def test_clustering_requires_feedback(cluster_api: Any) -> None:
 
 
 async def test_clustering_requires_embeddings(cluster_api: Any) -> None:
-    client, tokens, conn, _holder, _audits = cluster_api
+    client, tokens, conn, _holder, _audits, _groq, _settings = cluster_api
     conn.pairs = []
     headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
 
@@ -218,7 +257,7 @@ async def test_clustering_requires_embeddings(cluster_api: Any) -> None:
 
 
 async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
-    client, tokens, conn, _holder, audits = cluster_api
+    client, tokens, conn, _holder, audits, _groq, _settings = cluster_api
     headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
 
     before = await client.get("/v1/feedback/clusters", headers=headers)
@@ -237,3 +276,84 @@ async def test_clustering_stores_a_candidate_theme(cluster_api: Any) -> None:
     assert again.json()["cluster_count"] == 1
     assert len(conn.clusters) == 1
     assert audits[-1]["action"] == "cluster.completed"
+
+
+async def test_naming_requires_a_groq_key(cluster_api: Any) -> None:
+    client, tokens, _conn, _holder, _audits, _groq, settings = cluster_api
+    settings.groq_api_key = None
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+
+    response = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert response.status_code == 503
+    assert "FEEDBACK_HUB_GROQ_API_KEY" in response.json()["detail"]
+
+
+async def test_naming_requires_themes(cluster_api: Any) -> None:
+    client, tokens, _conn, _holder, _audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+
+    response = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert response.status_code == 409
+    assert "Find themes" in response.json()["detail"]
+    assert groq.prompts == []
+
+
+async def test_naming_fills_a_blank_theme_and_skips_it_later(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    conn.items[0]["title"] = "Email ada@example.com about import progress"
+    await client.post("/v1/feedback/clusters", headers=headers)
+
+    named = await client.post("/v1/feedback/clusters/names", headers=headers)
+    again = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert named.status_code == 200
+    assert named.json()["named_count"] == 1
+    assert named.json()["clusters"][0]["name"] == "Import progress"
+    assert "[email]" in groq.prompts[0]
+    assert "ada@example.com" not in groq.prompts[0]
+    assert len(groq.prompts) == 1
+    assert again.json()["clusters"][0]["name"] == "Import progress"
+    assert audits[-1]["action"] == "cluster.named"
+
+
+async def test_naming_keeps_an_edited_blank(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, _audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    await client.post("/v1/feedback/clusters", headers=headers)
+    conn.labels[conn.clusters[0][0]] = (None, None, True)
+
+    named = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert named.status_code == 200
+    assert named.json()["named_count"] == 0
+    assert named.json()["clusters"][0]["name"] is None
+    assert groq.prompts == []
+
+
+async def test_naming_keeps_a_stored_name(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, _audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    await client.post("/v1/feedback/clusters", headers=headers)
+    conn.labels[conn.clusters[0][0]] = ("Custom import", "Kept by hand.", False)
+
+    named = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert named.status_code == 200
+    assert named.json()["clusters"][0]["name"] == "Custom import"
+    assert groq.prompts == []
+
+
+async def test_naming_reports_a_provider_failure(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, _audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    await client.post("/v1/feedback/clusters", headers=headers)
+    groq.fail = GroqError("Groq did not respond in time.")
+
+    named = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert named.status_code == 502
+    assert named.json()["detail"] == "Groq did not respond in time."
+    assert conn.labels == {}

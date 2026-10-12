@@ -97,6 +97,7 @@ async def api(database_url: str, tokens: TokenFactory) -> AsyncIterator[httpx.As
         database_url=SecretStr(database_url),
         supabase_url=SUPABASE_URL,
         gemini_api_key=SecretStr("gemini-test-key"),
+        groq_api_key=SecretStr("groq-test-key"),
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app), httpx.AsyncClient() as http:
