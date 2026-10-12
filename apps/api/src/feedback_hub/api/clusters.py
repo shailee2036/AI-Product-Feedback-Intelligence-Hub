@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from feedback_hub.api.me import default_workspace_name
 from feedback_hub.auth import CurrentUser
 from feedback_hub.config import Settings, get_settings
-from feedback_hub.db.briefs import StoredBrief, load_product_briefs, save_product_brief
+from feedback_hub.db.briefs import (
+    StoredBrief,
+    StoredVersion,
+    load_brief_versions,
+    load_product_briefs,
+    save_product_brief,
+)
 from feedback_hub.db.clusters import (
     AnalysisRun,
     ClusterStatus,
@@ -37,7 +43,12 @@ from feedback_hub.db.workspaces import Workspace, ensure_workspace, record_audit
 from feedback_hub.feedback.clusters import LABELED_THEMES, score_themes, theme_groups
 from feedback_hub.feedback.groq import GroqClient, GroqError
 from feedback_hub.feedback.normalize import prepare_text
-from feedback_hub.feedback.theme_briefs import brief_prompt, brief_samples, parse_theme_brief
+from feedback_hub.feedback.theme_briefs import (
+    brief_from_edit,
+    brief_prompt,
+    brief_samples,
+    parse_theme_brief,
+)
 from feedback_hub.feedback.theme_names import naming_prompt, parse_theme_names, representative_lines
 from feedback_hub.feedback.theme_scores import ScoreFact, score_cluster
 
@@ -56,6 +67,8 @@ NO_MERGE = "Choose a different theme to merge into."
 NO_SPLIT = "Keep at least one row in the original theme, and move at least one row out."
 NO_NAME = "Enter a theme name."
 NO_APPROVED = "Approve the theme before writing a brief."
+NO_BRIEF_YET = "Write a brief before editing it."
+NO_SECTION = "Fill in every section of the brief."
 NAME_PROVIDER = "groq"
 BRIEF_SYSTEM = "You write evidence-linked product briefs. Reply with JSON only."
 
@@ -78,6 +91,13 @@ class ClusterScore(BaseModel):
     score: float
 
 
+class BriefVersion(BaseModel):
+    version: int
+    source: Literal["generated", "edited"]
+    problem: str
+    created_at: datetime
+
+
 class ClusterBrief(BaseModel):
     problem: str
     impact: str
@@ -86,6 +106,9 @@ class ClusterBrief(BaseModel):
     acceptance_criteria: str
     open_questions: str
     evidence_ids: list[UUID]
+    version: int
+    source: Literal["generated", "edited"]
+    history: list[BriefVersion]
 
 
 class ClusterGroup(BaseModel):
@@ -186,7 +209,7 @@ async def find_clusters(
             model_version=settings.gemini_embedding_version,
         )
         stored = await load_stored_clusters(conn)
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
         report = _report(
             items,
             stored,
@@ -196,6 +219,7 @@ async def find_clusters(
             edges=edges,
             embedded=embedded,
             briefs=briefs,
+            history=history,
         )
         await record_audit_event(
             conn,
@@ -225,7 +249,7 @@ async def read_clusters(
             return ClusterReport.idle(settings)
         items = await load_feedback_items(conn)
         stored = await load_stored_clusters(conn)
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -235,6 +259,7 @@ async def read_clusters(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
     )
 
 
@@ -288,7 +313,7 @@ async def name_clusters(
                 target_id=str(product.id),
                 metadata={"named_count": len(to_save)},
             )
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -298,6 +323,7 @@ async def name_clusters(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
     )
 
 
@@ -346,7 +372,7 @@ async def relabel_theme(
             target_id=str(cluster_id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -356,6 +382,7 @@ async def relabel_theme(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
     )
 
 
@@ -384,7 +411,7 @@ async def decide_theme(
             target_id=str(cluster_id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -394,6 +421,7 @@ async def decide_theme(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
     )
 
 
@@ -425,7 +453,7 @@ async def merge_theme(
             target_id=str(body.target_id),
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -435,6 +463,7 @@ async def merge_theme(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
     )
 
 
@@ -467,7 +496,7 @@ async def split_theme(
             target_id=str(created),
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -477,6 +506,7 @@ async def split_theme(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
     )
 
 
@@ -488,7 +518,7 @@ async def write_theme_brief(
     database: Annotated[Database, Depends(get_database)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ClusterReport:
-    """Write an evidence-linked brief for an approved theme. A later write replaces it."""
+    """Write an evidence-linked brief for an approved theme. Earlier versions stay stored."""
     if settings.groq_api_key is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_BRIEF)
     async with database.user_transaction(user) as conn:
@@ -524,6 +554,7 @@ async def write_theme_brief(
             tenant_id=workspace.tenant_id,
             product_id=product.id,
             brief=parsed,
+            source="generated",
             provider=NAME_PROVIDER,
             model=settings.groq_theme_model,
         )
@@ -536,7 +567,7 @@ async def write_theme_brief(
             target_id=str(cluster.id),
             metadata={"product_id": str(product.id)},
         )
-        edges, embedded, briefs = await _report_inputs(conn, settings)
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
     return _report(
         items,
         stored,
@@ -546,6 +577,83 @@ async def write_theme_brief(
         edges=edges,
         embedded=embedded,
         briefs=briefs,
+        history=history,
+    )
+
+
+class ThemeBriefEdit(BaseModel):
+    problem: str = Field(min_length=1, max_length=400)
+    impact: str = Field(min_length=1, max_length=400)
+    evidence_summary: str = Field(min_length=1, max_length=600)
+    non_goals: str = Field(min_length=1, max_length=400)
+    acceptance_criteria: str = Field(min_length=1, max_length=600)
+    open_questions: str = Field(min_length=1, max_length=400)
+
+
+@router.patch("/v1/feedback/clusters/{cluster_id}/brief", response_model=ClusterReport)
+async def edit_theme_brief(
+    cluster_id: UUID,
+    body: ThemeBriefEdit,
+    user: CurrentUser,
+    database: Annotated[Database, Depends(get_database)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ClusterReport:
+    """Save a person's edits as a new version and keep the earlier text."""
+    async with database.user_transaction(user) as conn:
+        workspace, product, run, items, stored = await _review_context(conn, user)
+        cluster = _find_cluster(stored, cluster_id)
+        if cluster is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_THEME)
+        current = next(
+            (item for item in await load_product_briefs(conn) if item.cluster_id == cluster_id),
+            None,
+        )
+        if current is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NO_BRIEF_YET)
+        try:
+            edited = brief_from_edit(
+                {
+                    "problem": body.problem,
+                    "impact": body.impact,
+                    "evidence_summary": body.evidence_summary,
+                    "non_goals": body.non_goals,
+                    "acceptance_criteria": body.acceptance_criteria,
+                    "open_questions": body.open_questions,
+                },
+                current.evidence_ids,
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        await save_product_brief(
+            conn,
+            cluster_id=cluster.id,
+            tenant_id=workspace.tenant_id,
+            product_id=product.id,
+            brief=edited,
+            source="edited",
+            provider=None,
+            model=None,
+        )
+        await record_audit_event(
+            conn,
+            tenant_id=workspace.tenant_id,
+            actor_id=user.id,
+            action="cluster.brief_edited",
+            target_type="candidate_cluster",
+            target_id=str(cluster.id),
+            metadata={"product_id": str(product.id)},
+        )
+        edges, embedded, briefs, history = await _report_inputs(conn, settings)
+    return _report(
+        items,
+        stored,
+        threshold=run.threshold,
+        neighbor_count=run.neighbor_count,
+        minimum_size=run.minimum_size,
+        edges=edges,
+        embedded=embedded,
+        briefs=briefs,
+        history=history,
     )
 
 
@@ -623,6 +731,7 @@ def _report(
     edges: list[tuple[UUID, UUID]],
     embedded: set[UUID],
     briefs: dict[UUID, StoredBrief],
+    history: dict[UUID, list[StoredVersion]],
     now: datetime | None = None,
 ) -> ClusterReport:
     by_id = {item.id: item for item in items}
@@ -651,7 +760,11 @@ def _report(
                     named=cluster.name is not None,
                     now=moment,
                 ),
-                brief=_public_brief(briefs.get(cluster.id), {member.id for member in members}),
+                brief=_public_brief(
+                    briefs.get(cluster.id),
+                    {member.id for member in members},
+                    history.get(cluster.id, []),
+                ),
             )
         )
     identities = [(str(item.id), item.external_id) for item in items]
@@ -702,7 +815,12 @@ def _cluster_score(
 
 async def _report_inputs(
     conn: AsyncConnection, settings: Settings
-) -> tuple[list[tuple[UUID, UUID]], set[UUID], dict[UUID, StoredBrief]]:
+) -> tuple[
+    list[tuple[UUID, UUID]],
+    set[UUID],
+    dict[UUID, StoredBrief],
+    dict[UUID, list[StoredVersion]],
+]:
     edges = [(edge.left_item_id, edge.right_item_id) for edge in await load_duplicate_edges(conn)]
     embedded = set(
         await load_embedded_item_ids(
@@ -713,10 +831,15 @@ async def _report_inputs(
         )
     )
     briefs = {brief.cluster_id: brief for brief in await load_product_briefs(conn)}
-    return edges, embedded, briefs
+    history: dict[UUID, list[StoredVersion]] = {}
+    for version in await load_brief_versions(conn):
+        history.setdefault(version.cluster_id, []).append(version)
+    return edges, embedded, briefs, history
 
 
-def _public_brief(stored: StoredBrief | None, member_ids: set[UUID]) -> ClusterBrief | None:
+def _public_brief(
+    stored: StoredBrief | None, member_ids: set[UUID], versions: list[StoredVersion]
+) -> ClusterBrief | None:
     if stored is None:
         return None
     cited = [item_id for item_id in stored.evidence_ids if item_id in member_ids]
@@ -728,6 +851,18 @@ def _public_brief(stored: StoredBrief | None, member_ids: set[UUID]) -> ClusterB
         acceptance_criteria=stored.acceptance_criteria,
         open_questions=stored.open_questions,
         evidence_ids=cited,
+        version=stored.version,
+        source=stored.source,
+        history=[
+            BriefVersion(
+                version=item.version,
+                source=item.source,
+                problem=item.problem,
+                created_at=item.created_at,
+            )
+            for item in versions
+            if item.version != stored.version
+        ],
     )
 
 

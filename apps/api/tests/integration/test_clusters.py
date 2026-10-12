@@ -214,14 +214,35 @@ async def test_clustering_groups_close_vectors(
         theme for theme in briefed.json()["clusters"] if theme["id"] == import_theme["id"]
     )
     assert written["brief"]["problem"] == "Imports hide progress."
+    assert written["brief"]["version"] == 1
     assert written["brief"]["evidence_ids"]
+    revised = await api.patch(
+        f"/v1/feedback/clusters/{import_theme['id']}/brief",
+        headers=headers,
+        json={
+            "problem": "Imports should show progress.",
+            "impact": "People cannot tell whether a large import is stuck.",
+            "evidence_summary": "Several rows ask for progress and rejected rows.",
+            "non_goals": "Do not change the import file format.",
+            "acceptance_criteria": "A running import shows progress.",
+            "open_questions": "Should rejected rows be downloadable?",
+        },
+    )
+    assert revised.status_code == 200, revised.text
+    edited = next(
+        theme for theme in revised.json()["clusters"] if theme["id"] == import_theme["id"]
+    )
+    assert edited["brief"]["version"] == 2
+    assert edited["brief"]["source"] == "edited"
+    assert edited["brief"]["history"][0]["problem"] == "Imports hide progress."
 
     refound = await api.post("/v1/feedback/clusters", headers=headers)
     assert refound.status_code == 200, refound.text
     kept = next(theme for theme in refound.json()["clusters"] if theme["id"] == import_theme["id"])
     assert kept["status"] == "approved"
     assert kept["name"] == "Import status"
-    assert kept["brief"]["problem"] == "Imports hide progress."
+    assert kept["brief"]["problem"] == "Imports should show progress."
+    assert kept["brief"]["history"][0]["source"] == "generated"
     open_theme = next(theme for theme in refound.json()["clusters"] if theme["status"] == "open")
     split = await api.post(
         f"/v1/feedback/clusters/{open_theme['id']}/split",

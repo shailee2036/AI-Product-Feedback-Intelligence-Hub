@@ -8,6 +8,7 @@ SAMPLE_LIMIT = 6
 SAMPLE_CHARS = 160
 UNREADABLE = "Groq returned a response that could not be read."
 NO_CITATION = "The brief did not cite a row in this theme."
+NO_SECTION = "Fill in every section of the brief."
 
 _LIMITS = {
     "problem": 400,
@@ -72,6 +73,31 @@ def parse_theme_brief(raw: str, allowed: set[UUID]) -> ThemeBrief:
     evidence_ids = _citations(payload.get("evidence_ids"), allowed)
     if not evidence_ids:
         raise ValueError(NO_CITATION)
+    return ThemeBrief(
+        problem=fields["problem"],
+        impact=fields["user_impact"],
+        evidence_summary=fields["evidence_summary"],
+        non_goals=fields["non_goals"],
+        acceptance_criteria=fields["acceptance_criteria"],
+        open_questions=fields["open_questions"],
+        evidence_ids=evidence_ids,
+    )
+
+
+def brief_from_edit(values: dict[str, str], evidence_ids: tuple[UUID, ...]) -> ThemeBrief:
+    """Keep the citations already stored and clean the text a person wrote."""
+    fields = {
+        "problem": _label(values.get("problem"), _LIMITS["problem"]),
+        "user_impact": _label(values.get("impact"), _LIMITS["user_impact"]),
+        "evidence_summary": _label(values.get("evidence_summary"), _LIMITS["evidence_summary"]),
+        "non_goals": _label(values.get("non_goals"), _LIMITS["non_goals"]),
+        "acceptance_criteria": _label(
+            values.get("acceptance_criteria"), _LIMITS["acceptance_criteria"]
+        ),
+        "open_questions": _label(values.get("open_questions"), _LIMITS["open_questions"]),
+    }
+    if any(not value for value in fields.values()) or not evidence_ids:
+        raise ValueError(NO_SECTION)
     return ThemeBrief(
         problem=fields["problem"],
         impact=fields["user_impact"],

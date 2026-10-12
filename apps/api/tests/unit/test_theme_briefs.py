@@ -4,7 +4,9 @@ import pytest
 
 from feedback_hub.feedback.theme_briefs import (
     NO_CITATION,
+    NO_SECTION,
     UNREADABLE,
+    brief_from_edit,
     brief_prompt,
     brief_samples,
     parse_theme_brief,
@@ -47,6 +49,40 @@ def test_parse_rejects_a_brief_with_no_theme_citation() -> None:
 
     with pytest.raises(ValueError, match=NO_CITATION):
         parse_theme_brief(raw, {uuid4()})
+
+
+def test_an_edit_keeps_the_stored_citations() -> None:
+    cited = uuid4()
+
+    brief = brief_from_edit(
+        {
+            "problem": "Imports should show progress.",
+            "impact": "People wait.",
+            "evidence_summary": "Rows ask for progress.",
+            "non_goals": "Leave the file format.",
+            "acceptance_criteria": "Show progress.",
+            "open_questions": "Offer a download?",
+        },
+        (cited,),
+    )
+
+    assert brief.problem == "Imports should show progress."
+    assert brief.evidence_ids == (cited,)
+
+
+def test_an_edit_requires_every_section() -> None:
+    with pytest.raises(ValueError, match=NO_SECTION):
+        brief_from_edit(
+            {
+                "problem": "   ",
+                "impact": "People wait.",
+                "evidence_summary": "Rows ask for progress.",
+                "non_goals": "Leave the file format.",
+                "acceptance_criteria": "Show progress.",
+                "open_questions": "Offer a download?",
+            },
+            (uuid4(),),
+        )
 
 
 def test_parse_rejects_a_missing_field() -> None:

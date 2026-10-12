@@ -47,6 +47,7 @@ class _Conn:
         self.labels: dict[UUID, tuple[str | None, str | None, bool]] = {}
         self.status: dict[UUID, str] = {}
         self.briefs: dict[UUID, dict[str, Any]] = {}
+        self.brief_versions: dict[UUID, list[dict[str, Any]]] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -56,6 +57,16 @@ class _Conn:
         if sql.startswith("select feedback_item_id from public.feedback_embeddings"):
             return _Result([_Row(feedback_item_id=item["id"]) for item in self.items])
         if "from public.duplicate_edges" in sql:
+            return _Result()
+        if "max(version_number)" in sql and isinstance(params, dict):
+            rows = self.brief_versions.get(params["cluster_id"], [])
+            latest = max((int(row["version_number"]) for row in rows), default=0)
+            return _Result([_Row(version_number=latest)])
+        if "from public.product_brief_versions" in sql:
+            stored = [row for rows in self.brief_versions.values() for row in rows]
+            return _Result([_Row(**row) for row in stored])
+        if sql.startswith("insert into public.product_brief_versions") and isinstance(params, dict):
+            self.brief_versions.setdefault(params["cluster_id"], []).append(params)
             return _Result()
         if "from public.product_briefs" in sql:
             return _Result([_Row(**row) for row in self.briefs.values()])
@@ -468,6 +479,17 @@ async def test_an_approved_theme_survives_the_next_clustering_run(cluster_api: A
     assert conn.status[conn.clusters[0][0]] == "approved"
 
 
+def _edit_body(problem: str) -> dict[str, str]:
+    return {
+        "problem": problem,
+        "impact": "People cannot tell whether a large import is stuck.",
+        "evidence_summary": "Several rows ask for progress and rejected rows.",
+        "non_goals": "Do not change the import file format.",
+        "acceptance_criteria": "A running import shows progress.",
+        "open_questions": "Should rejected rows be downloadable?",
+    }
+
+
 def _brief_json(evidence_ids: list[str]) -> str:
     return json.dumps(
         {
@@ -499,13 +521,33 @@ async def test_a_brief_keeps_only_rows_from_an_approved_theme(cluster_api: Any) 
     groq.reply = _brief_json([str(uuid4())])
     missed = await client.post(f"/v1/feedback/clusters/{cluster_id}/brief", headers=headers)
     groq.reply = _brief_json([member_id, str(uuid4())])
+    missing = await client.patch(
+        f"/v1/feedback/clusters/{cluster_id}/brief",
+        headers=headers,
+        json=_edit_body("Imports should show progress."),
+    )
     written = await client.post(f"/v1/feedback/clusters/{cluster_id}/brief", headers=headers)
+    edited = await client.patch(
+        f"/v1/feedback/clusters/{cluster_id}/brief",
+        headers=headers,
+        json=_edit_body("Imports should show progress."),
+    )
 
     assert refused.status_code == 409
     assert approved.status_code == 200
     assert missed.status_code == 502
+    assert missing.status_code == 404
     assert written.status_code == 200
     brief = written.json()["clusters"][0]["brief"]
     assert brief["problem"] == "Imports hide progress."
+    assert brief["version"] == 1
     assert brief["evidence_ids"] == [member_id]
-    assert audits[-1]["action"] == "cluster.briefed"
+    assert edited.status_code == 200
+    revised = edited.json()["clusters"][0]["brief"]
+    assert revised["version"] == 2
+    assert revised["source"] == "edited"
+    assert revised["problem"] == "Imports should show progress."
+    assert revised["history"][0]["problem"] == "Imports hide progress."
+    assert revised["history"][0]["source"] == "generated"
+    assert revised["evidence_ids"] == [member_id]
+    assert audits[-1]["action"] == "cluster.brief_edited"
