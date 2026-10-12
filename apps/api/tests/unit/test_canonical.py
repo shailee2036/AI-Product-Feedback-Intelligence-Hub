@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from feedback_hub.feedback.canonical import IssueSignal, recommend_canonical
+from feedback_hub.feedback.canonical import (
+    IssueSignal,
+    final_open_issue_warnings,
+    recommend_canonical,
+)
 
 NOW = datetime(2026, 10, 11, tzinfo=UTC)
 
@@ -129,3 +133,30 @@ def test_naive_timestamp_counts_as_recent() -> None:
     assert pick is not None
     assert pick.recent is True
     assert pick.coverage == 0.0
+
+
+def test_final_warning_lists_open_issues_before_a_new_draft() -> None:
+    inside = _issue(7)
+    outside = _issue(9)
+    quiet = _issue(11)
+    closed = _issue(4, state="closed")
+    row = uuid4()
+    members = (inside.id, closed.id, row)
+    pairs = [
+        (inside.id, row, 0.2),
+        (outside.id, row, 0.9),
+        (quiet.id, row, 0.4),
+        (closed.id, row, 0.99),
+    ]
+
+    warnings = final_open_issue_warnings(
+        members,
+        {inside.id: inside, outside.id: outside, quiet.id: quiet, closed.id: closed},
+        pairs,
+        duplicate_threshold=0.86,
+    )
+
+    assert [warning.issue.number for warning in warnings] == [7, 9]
+    assert warnings[0].in_theme is True
+    assert warnings[1].in_theme is False
+    assert warnings[1].similarity == 0.9
