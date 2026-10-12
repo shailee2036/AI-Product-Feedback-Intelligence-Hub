@@ -104,6 +104,7 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/feedback/clusters/{cluster_id}/split` | user | Move selected rows into a new theme |
 | POST | `/v1/feedback/clusters/{cluster_id}/brief` | user | Write an evidence-linked brief for an approved theme |
 | PATCH | `/v1/feedback/clusters/{cluster_id}/brief` | user | Save an edited brief and keep earlier versions |
+| POST | `/v1/feedback/clusters/{cluster_id}/suggestion` | user | Save a suggested comment and labels locally |
 
 Exact duplicates share a hash of the redacted text. Semantic duplicates are mutual nearest
 neighbors with cosine similarity of at least 0.86. A starter set of labeled seed pairs is scored
@@ -125,8 +126,10 @@ one imported GitHub issue as the canonical issue. Open issues rank ahead of clos
 score then averages semantic coverage (mean similarity to the other rows in the theme),
 discussion (full at 10 comments), reactions (full at 10), and whether the issue was updated in
 the last 90 days. Other open issues in the theme, and open issues outside it with similarity of
-at least 0.86, are shown as possible duplicates. Nothing is created, closed, or commented on
-GitHub. Feedback bodies stay in the database.
+at least 0.86, are shown as possible duplicates. When a canonical issue exists, the theme also
+drafts a comment from the brief and related CSV titles, plus labels from product areas. Saving
+that draft keeps it in the workspace. Nothing is created, closed, or commented on GitHub.
+Feedback bodies stay in the database.
 
 Validate the seed fixtures:
 
