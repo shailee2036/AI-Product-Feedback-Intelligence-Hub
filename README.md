@@ -59,6 +59,15 @@ bash deploy/scripts/kind-smoke.sh
 
 The local command needs Docker, Helm, kind, and kubectl.
 
+### API image SBOM
+
+After the Trivy scan passes, CI writes a CycloneDX SBOM for the API image and keeps it for 30 days as the `feedback-hub-api-sbom` workflow artifact. The image is not pushed or signed yet.
+
+```bash
+docker build --tag "feedback-hub-api:$(git rev-parse HEAD)" apps/api
+trivy image --format cyclonedx --output feedback-hub-api.cdx.json "feedback-hub-api:$(git rev-parse HEAD)"
+```
+
 ### Frontend
 
 Requires Node.js 22 or newer and the backend running on `http://127.0.0.1:8000`.
