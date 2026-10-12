@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { signOut } from "@/app/login/actions";
-import { getClusters, getCurrentEmbeddings, getCurrentImport, getDuplicates, getFeedback, getMe, getProduct } from "@/lib/api/client";
+import { getAudit, getClusters, getCurrentEmbeddings, getCurrentImport, getDuplicates, getFeedback, getMe, getProduct } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import type { ClusterReport, DuplicateReport, EmbeddingStatus, FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
+import type { AuditReport, ClusterReport, DuplicateReport, EmbeddingStatus, FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
 import { getVerifiedAccessToken } from "@/lib/supabase/server";
 
+import { AuditPanel } from "./audit-panel";
 import { ClusterPanel } from "./cluster-panel";
 import { CsvPanel } from "./csv-panel";
 import { DuplicatePanel } from "./duplicate-panel";
@@ -20,6 +21,7 @@ type Loaded =
   | {
       me: Me;
       product: Product | null;
+      audit: AuditReport;
       job: ImportJob | null;
       feedback: FeedbackPage;
       csvFeedback: FeedbackPage;
@@ -34,11 +36,12 @@ const EMPTY_FEEDBACK: FeedbackPage = { total: 0, items: [] };
 async function load(token: string): Promise<Loaded> {
   try {
     const me = await getMe(token);
-    const product = await getProduct(token);
+    const [product, audit] = await Promise.all([getProduct(token), getAudit(token)]);
     if (!product) {
       return {
         me,
         product,
+        audit,
         job: null,
         feedback: EMPTY_FEEDBACK,
         csvFeedback: EMPTY_FEEDBACK,
@@ -55,7 +58,7 @@ async function load(token: string): Promise<Loaded> {
       getDuplicates(token),
       getClusters(token),
     ]);
-    return { me, product, job, feedback, csvFeedback, embeddings, duplicates, clusters };
+    return { me, product, audit, job, feedback, csvFeedback, embeddings, duplicates, clusters };
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect("/login?next=/dashboard");
     return { error: error instanceof ApiError ? error.detail.message : "Something went wrong." };
@@ -100,15 +103,19 @@ export default async function DashboardPage() {
           embeddings={data.embeddings}
           duplicates={data.duplicates}
           clusters={data.clusters}
+          audit={data.audit}
         />
       ) : (
-        <section className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
-          <h2 className="text-lg font-semibold">Register your product</h2>
-          <p className="mt-1 mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-            Each workspace tracks one open-source product through its public GitHub repository.
-          </p>
-          <RegisterRepositoryForm />
-        </section>
+        <>
+          <section className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
+            <h2 className="text-lg font-semibold">Register your product</h2>
+            <p className="mt-1 mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+              Each workspace tracks one open-source product through its public GitHub repository.
+            </p>
+            <RegisterRepositoryForm />
+          </section>
+          <AuditPanel report={data.audit} />
+        </>
       )}
     </main>
   );
@@ -122,6 +129,7 @@ function ProductCard({
   embeddings,
   duplicates,
   clusters,
+  audit,
 }: {
   product: Product;
   job: ImportJob | null;
@@ -130,6 +138,7 @@ function ProductCard({
   embeddings: EmbeddingStatus | null;
   duplicates: DuplicateReport | null;
   clusters: ClusterReport | null;
+  audit: AuditReport;
 }) {
   const repo = product.repository;
   const registered = new Date(product.created_at).toLocaleDateString("en-US", {
@@ -171,6 +180,7 @@ function ProductCard({
       {embeddings ? <EmbeddingPanel status={embeddings} /> : null}
       {duplicates ? <DuplicatePanel report={duplicates} /> : null}
       {clusters ? <ClusterPanel report={clusters} /> : null}
+      <AuditPanel report={audit} />
     </section>
   );
 }
