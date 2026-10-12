@@ -177,3 +177,45 @@ async def test_clustering_groups_close_vectors(
         await conn.close()
     assert stored == 2
     assert filled == 2
+
+    themes = named.json()["clusters"]
+    import_theme = next(theme for theme in themes if theme["name"] == "Import progress")
+    renamed = await api.patch(
+        f"/v1/feedback/clusters/{import_theme['id']}",
+        headers=headers,
+        json={"name": "Import status", "summary": "People want import progress."},
+    )
+    assert renamed.status_code == 200
+    approved = await api.post(
+        f"/v1/feedback/clusters/{import_theme['id']}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+    assert approved.status_code == 200
+
+    refound = await api.post("/v1/feedback/clusters", headers=headers)
+    assert refound.status_code == 200, refound.text
+    kept = next(theme for theme in refound.json()["clusters"] if theme["id"] == import_theme["id"])
+    assert kept["status"] == "approved"
+    assert kept["name"] == "Import status"
+    open_theme = next(theme for theme in refound.json()["clusters"] if theme["status"] == "open")
+    split = await api.post(
+        f"/v1/feedback/clusters/{open_theme['id']}/split",
+        headers=headers,
+        json={"member_ids": [open_theme["members"][0]["id"]]},
+    )
+    assert split.status_code == 200
+    assert split.json()["cluster_count"] == 3
+    created = next(
+        theme
+        for theme in split.json()["clusters"]
+        if theme["id"] not in {import_theme["id"], open_theme["id"]}
+    )
+    merged = await api.post(
+        f"/v1/feedback/clusters/{created['id']}/merge",
+        headers=headers,
+        json={"target_id": open_theme["id"]},
+    )
+    assert merged.status_code == 200
+    assert merged.json()["cluster_count"] == 2
+    assert any(theme["id"] == import_theme["id"] for theme in merged.json()["clusters"])

@@ -44,6 +44,7 @@ class _Conn:
         self.run: dict[str, Any] | None = None
         self.clusters: list[tuple[UUID, list[UUID]]] = []
         self.labels: dict[UUID, tuple[str | None, str | None, bool]] = {}
+        self.status: dict[UUID, str] = {}
         self._cluster_id: UUID | None = None
 
     async def execute(self, statement: object, params: object = None) -> _Result:
@@ -57,13 +58,39 @@ class _Conn:
                     for left, right, score in self.pairs
                 ]
             )
+        if sql.startswith("delete from public.candidate_cluster_members where cluster_id in"):
+            self.clusters = [
+                item for item in self.clusters if self.status.get(item[0]) == "approved"
+            ]
+            return _Result()
+        if sql.startswith("delete from public.candidate_cluster_members where cluster_id ="):
+            if isinstance(params, dict):
+                self.clusters = [item for item in self.clusters if item[0] != params["id"]]
+            return _Result()
         if sql.startswith("delete from public.candidate_cluster_members"):
             self.clusters.clear()
             return _Result()
+        if sql.startswith("delete from public.candidate_clusters where status"):
+            approved = {
+                cluster_id for cluster_id, state in self.status.items() if state == "approved"
+            }
+            self.labels = {key: value for key, value in self.labels.items() if key in approved}
+            self.status = {key: value for key, value in self.status.items() if key in approved}
+            return _Result()
+        if sql.startswith("delete from public.candidate_clusters where id") and isinstance(
+            params, dict
+        ):
+            self.clusters = [item for item in self.clusters if item[0] != params["id"]]
+            self.labels.pop(params["id"], None)
+            self.status.pop(params["id"], None)
+            return _Result()
         if sql.startswith("delete from public.candidate_clusters"):
             self.labels.clear()
+            self.status.clear()
             return _Result()
         if sql.startswith("delete from public.analysis_runs"):
+            if any(state == "approved" for state in self.status.values()):
+                return _Result()
             self.run = None
             return _Result()
         if sql.startswith("insert into public.analysis_runs") and isinstance(params, dict):
@@ -72,6 +99,7 @@ class _Conn:
         if sql.startswith("insert into public.candidate_clusters"):
             self._cluster_id = uuid4()
             self.clusters.append((self._cluster_id, []))
+            self.status[self._cluster_id] = "open"
             return _Result(scalar=self._cluster_id)
         if sql.startswith("insert into public.candidate_cluster_members") and isinstance(
             params, list
@@ -94,6 +122,20 @@ class _Conn:
                     )
                 ]
             )
+        if (
+            sql.startswith("update public.candidate_clusters set name")
+            and isinstance(params, dict)
+            and "name_edited = true" in sql
+        ):
+            self.labels[params["id"]] = (params["name"], params["summary"], True)
+            return _Result([_Row(id=params["id"])])
+        if sql.startswith("update public.candidate_clusters set status") and isinstance(
+            params, dict
+        ):
+            if params["id"] not in {cluster_id for cluster_id, _members in self.clusters}:
+                return _Result()
+            self.status[params["id"]] = params["status"]
+            return _Result([_Row(id=params["id"])])
         if sql.startswith("update public.candidate_clusters") and isinstance(params, list):
             for row in params:
                 if not isinstance(row, dict):
@@ -114,6 +156,7 @@ class _Conn:
                         name=name,
                         summary=summary,
                         name_edited=edited,
+                        status=self.status.get(cluster_id, "open"),
                     )
                     for member_id in member_ids
                 )
@@ -357,3 +400,46 @@ async def test_naming_reports_a_provider_failure(cluster_api: Any) -> None:
     assert named.status_code == 502
     assert named.json()["detail"] == "Groq did not respond in time."
     assert conn.labels == {}
+
+
+async def test_relabel_is_kept_when_themes_are_named_again(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, audits, groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    created = await client.post("/v1/feedback/clusters", headers=headers)
+    cluster_id = created.json()["clusters"][0]["id"]
+
+    renamed = await client.patch(
+        f"/v1/feedback/clusters/{cluster_id}",
+        headers=headers,
+        json={"name": "Import progress", "summary": "People want a progress report."},
+    )
+    named = await client.post("/v1/feedback/clusters/names", headers=headers)
+
+    assert renamed.status_code == 200
+    assert renamed.json()["clusters"][0]["name"] == "Import progress"
+    assert named.json()["clusters"][0]["name"] == "Import progress"
+    assert groq.prompts == []
+    assert audits[-1]["action"] == "cluster.relabeled"
+    assert conn.labels[conn.clusters[0][0]][2] is True
+
+
+async def test_an_approved_theme_survives_the_next_clustering_run(cluster_api: Any) -> None:
+    client, tokens, conn, _holder, audits, _groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    created = await client.post("/v1/feedback/clusters", headers=headers)
+    cluster_id = created.json()["clusters"][0]["id"]
+
+    approved = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+    again = await client.post("/v1/feedback/clusters", headers=headers)
+
+    assert approved.status_code == 200
+    assert approved.json()["approved_count"] == 1
+    assert any(event["action"] == "cluster.approved" for event in audits)
+    assert again.status_code == 200
+    assert again.json()["clusters"][0]["id"] == cluster_id
+    assert again.json()["clusters"][0]["status"] == "approved"
+    assert conn.status[conn.clusters[0][0]] == "approved"

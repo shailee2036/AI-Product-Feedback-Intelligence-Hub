@@ -7,7 +7,7 @@ Next.js (App Router) frontend for the Product Feedback Intelligence Hub.
 | `src/proxy.ts` | Refreshes the Supabase session and guards `/dashboard` |
 | `src/app/login` | Email and password sign-in and sign-up (server actions) |
 | `src/app/auth/callback` | Email confirmation handler |
-| `src/app/dashboard` | Workspace view, repository registration, issue import, CSV upload, embeddings, duplicates, themes, and theme names |
+| `src/app/dashboard` | Workspace view, repository registration, issue import, CSV upload, embeddings, duplicates, themes, names, and review |
 | `src/lib/api` | Server-only, schema-validated client for the FastAPI backend |
 | `src/lib/supabase` | Supabase clients for server components and the proxy |
 

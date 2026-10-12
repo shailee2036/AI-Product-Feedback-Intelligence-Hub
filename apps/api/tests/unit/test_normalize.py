@@ -33,6 +33,18 @@ def test_declared_language_and_short_text() -> None:
     assert short.skip_reason == "too_short"
 
 
+def test_markdown_links_keep_the_label() -> None:
+    prepared = prepare_text("Read [the import guide](https://example.com/docs) before uploading.")
+    brackets = prepare_text("[" * 20_000)
+    unfinished = prepare_text("See [docs](https://example.com/docs before you upload the rows.")
+    empty_url = prepare_text("See [docs]() before you upload the spreadsheet rows.")
+
+    assert prepared.text == "Read the import guide before uploading."
+    assert brackets.text == "[" * 2_000
+    assert unfinished.text == "See [docs](https://example.com/docs before you upload the rows."
+    assert empty_url.text == "See [docs]() before you upload the spreadsheet rows."
+
+
 def test_csv_text_does_not_repeat_the_title() -> None:
     assert (
         source_text(source="csv", title="Auth: hello", body="hello there friend")

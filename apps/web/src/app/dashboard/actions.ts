@@ -5,10 +5,14 @@ import { redirect } from "next/navigation";
 
 import {
   cancelIssueImport,
+  decideCluster,
   findClusters,
   findDuplicates,
+  mergeClusters,
   nameClusters,
   registerGithubProduct,
+  relabelCluster,
+  splitCluster,
   startEmbeddings,
   startIssueImport,
   uploadFeedbackCsv,
@@ -86,6 +90,69 @@ export async function nameThemes(): Promise<ClusterState> {
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     if (error.status === 404) return { error: "Register a repository before naming themes." };
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function renameTheme(_state: ClusterState, formData: FormData): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  const clusterId = String(formData.get("clusterId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  const summary = String(formData.get("summary") ?? "").trim();
+  if (!name) return { error: "Enter a theme name." };
+  try {
+    await relabelCluster(token, clusterId, name, summary);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function decideTheme(_state: ClusterState, formData: FormData): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  const clusterId = String(formData.get("clusterId") ?? "");
+  const decision = formData.get("decision") === "dismiss" ? "dismiss" : "approve";
+  try {
+    await decideCluster(token, clusterId, decision);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function mergeTheme(_state: ClusterState, formData: FormData): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  const clusterId = String(formData.get("clusterId") ?? "");
+  const targetId = String(formData.get("targetId") ?? "");
+  try {
+    await mergeClusters(token, clusterId, targetId);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { error: error.detail.message };
+  }
+  revalidatePath("/dashboard");
+  return {};
+}
+
+export async function splitTheme(_state: ClusterState, formData: FormData): Promise<ClusterState> {
+  const token = await getVerifiedAccessToken();
+  if (!token) redirect("/login?next=/dashboard");
+  const clusterId = String(formData.get("clusterId") ?? "");
+  const memberIds = formData.getAll("memberId").map((value) => String(value));
+  if (memberIds.length === 0) return { error: "Select at least one row to move out." };
+  try {
+    await splitCluster(token, clusterId, memberIds);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
   revalidatePath("/dashboard");

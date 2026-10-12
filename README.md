@@ -98,6 +98,10 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/feedback/clusters` | user | Group embedded feedback into candidate themes |
 | GET | `/v1/feedback/clusters` | user | Latest candidate themes; original rows are unchanged |
 | POST | `/v1/feedback/clusters/names` | user | Name untitled themes from redacted titles |
+| PATCH | `/v1/feedback/clusters/{cluster_id}` | user | Save a theme name and summary |
+| POST | `/v1/feedback/clusters/{cluster_id}/decision` | user | Approve or dismiss a theme |
+| POST | `/v1/feedback/clusters/{cluster_id}/merge` | user | Move a theme's rows into another theme |
+| POST | `/v1/feedback/clusters/{cluster_id}/split` | user | Move selected rows into a new theme |
 
 Exact duplicates share a hash of the redacted text. Semantic duplicates are mutual nearest
 neighbors with cosine similarity of at least 0.86. A starter set of labeled seed pairs is scored
@@ -106,8 +110,9 @@ with each run. The full 200-pair review is later manual labeling.
 Candidate themes are mutual nearest neighbors with cosine similarity of at least 0.82 and at
 least three rows. A starter set of seed themes is scored with each run. Naming sends up to six
 redacted titles per theme to Groq in one request and stores a short name and summary. A name
-already stored, including one marked as edited, stays in place. Finding themes again replaces
-the clusters, including stored names. Merge, split, and approval come later.
+already stored, including one marked as edited, stays in place. Approving a theme keeps it
+when themes are found again. Open and dismissed themes are replaced. Merge moves every row
+into another theme. Split moves the selected rows into a new theme.
 
 Validate the seed fixtures:
 

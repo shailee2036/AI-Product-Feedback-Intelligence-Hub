@@ -3,7 +3,6 @@ import re
 from dataclasses import dataclass
 
 _WHITESPACE = re.compile(r"\s+")
-_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _MARKDOWN_NOISE = re.compile(r"[*_`>#]+")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE = re.compile(r"(?<!\w)(?:\+\d{1,3}[\s.-])?(?:\(?\d{3}\)?[\s.-])\d{3}[\s.-]\d{4}(?!\w)")
@@ -34,7 +33,7 @@ def prepare_text(raw: str, *, declared_language: str | None = None) -> PreparedT
 
     The hash is of the redacted text. The original email, phone, or token is not stored.
     """
-    text = _MARKDOWN_LINK.sub(r"\1", raw)
+    text = _strip_markdown_links(raw)
     text, emails = _EMAIL.subn("[email]", text)
     text, phones = _PHONE.subn("[phone]", text)
     text, secrets = _SECRET.subn("[secret]", text)
@@ -45,6 +44,53 @@ def prepare_text(raw: str, *, declared_language: str | None = None) -> PreparedT
     digest = hashlib.sha256(text.encode()).hexdigest()
     skip = "too_short" if len(text) < _MIN_CHARS else None
     return PreparedText(text, language, digest, redactions, skip)
+
+
+def _strip_markdown_links(text: str) -> str:
+    """Replace [label](url) with the label.
+
+    A single forward pass keeps a long run of brackets from retrying the same span.
+    """
+    length = len(text)
+    bracket_ends = [index for index, char in enumerate(text) if char == "]"]
+    paren_ends = [index for index, char in enumerate(text) if char == ")"]
+    parts: list[str] = []
+    index = 0
+    bracket_at = 0
+    paren_at = 0
+    while index < length:
+        if text[index] != "[":
+            next_open = text.find("[", index)
+            if next_open == -1:
+                parts.append(text[index:])
+                break
+            parts.append(text[index:next_open])
+            index = next_open
+            continue
+        while bracket_at < len(bracket_ends) and bracket_ends[bracket_at] <= index:
+            bracket_at += 1
+        if bracket_at == len(bracket_ends):
+            parts.append(text[index:])
+            break
+        label_end = bracket_ends[bracket_at]
+        url_open = label_end + 1
+        if label_end == index + 1 or url_open >= length or text[url_open] != "(":
+            parts.append("[")
+            index += 1
+            continue
+        while paren_at < len(paren_ends) and paren_ends[paren_at] <= url_open:
+            paren_at += 1
+        if paren_at == len(paren_ends):
+            parts.append(text[index:])
+            break
+        url_end = paren_ends[paren_at]
+        if url_end == url_open + 1:
+            parts.append("[")
+            index += 1
+            continue
+        parts.append(text[index + 1 : label_end])
+        index = url_end + 1
+    return "".join(parts)
 
 
 def _language(text: str, declared: str | None) -> str:

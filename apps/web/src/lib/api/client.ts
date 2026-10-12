@@ -26,7 +26,7 @@ import {
 const TIMEOUT_MS = 15_000;
 
 type RequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH";
   body?: unknown;
   accessToken: string;
 };
@@ -146,6 +146,55 @@ export function getClusters(accessToken: string): Promise<ClusterReport> {
 export function nameClusters(accessToken: string): Promise<ClusterReport> {
   return request("/v1/feedback/clusters/names", clusterReportSchema, {
     method: "POST",
+    accessToken,
+  });
+}
+
+export function relabelCluster(
+  accessToken: string,
+  clusterId: string,
+  name: string,
+  summary: string,
+): Promise<ClusterReport> {
+  return request(`/v1/feedback/clusters/${clusterId}`, clusterReportSchema, {
+    method: "PATCH",
+    body: { name, summary },
+    accessToken,
+  });
+}
+
+export function decideCluster(
+  accessToken: string,
+  clusterId: string,
+  decision: "approve" | "dismiss",
+): Promise<ClusterReport> {
+  return request(`/v1/feedback/clusters/${clusterId}/decision`, clusterReportSchema, {
+    method: "POST",
+    body: { decision },
+    accessToken,
+  });
+}
+
+export function mergeClusters(
+  accessToken: string,
+  clusterId: string,
+  targetId: string,
+): Promise<ClusterReport> {
+  return request(`/v1/feedback/clusters/${clusterId}/merge`, clusterReportSchema, {
+    method: "POST",
+    body: { target_id: targetId },
+    accessToken,
+  });
+}
+
+export function splitCluster(
+  accessToken: string,
+  clusterId: string,
+  memberIds: string[],
+): Promise<ClusterReport> {
+  return request(`/v1/feedback/clusters/${clusterId}/split`, clusterReportSchema, {
+    method: "POST",
+    body: { member_ids: memberIds },
     accessToken,
   });
 }
