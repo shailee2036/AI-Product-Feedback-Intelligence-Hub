@@ -10,8 +10,8 @@ from tests.auth_helpers import TokenFactory
 from tests.integration.conftest import CreateUser
 from tests.integration.test_product import GITHUB_REPO_URL, bearer
 
-MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-EMBED_URL = f"https://router.huggingface.co/hf-inference/models/{MODEL}"
+MODEL = "gemini-embedding-001"
+EMBED_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:batchEmbedContents"
 CSV = (
     "feedback_id,created_at,language,feedback\n"
     "F-1,2026-06-03T09:15:00Z,en,"
@@ -23,7 +23,7 @@ CSV = (
 def github(appwrite_repo_payload: dict[str, Any]) -> Any:
     with respx.mock(assert_all_called=False) as router:
         router.get(GITHUB_REPO_URL).respond(200, json=appwrite_repo_payload)
-        router.post(EMBED_URL).respond(200, json=[[0.01] * 384])
+        router.post(EMBED_URL).respond(200, json={"embeddings": [{"values": [0.01] * 768}]})
         yield router
 
 

@@ -23,9 +23,9 @@ from feedback_hub.feedback.embeddings import EmbeddingClient
 
 router = APIRouter(tags=["embeddings"])
 
-PROVIDER = "huggingface"
+PROVIDER = "gemini"
 ALREADY_RUNNING = "An embedding run is already in progress."
-NOT_CONFIGURED = "Add FEEDBACK_HUB_HUGGINGFACE_TOKEN before embedding feedback."
+NOT_CONFIGURED = "Add FEEDBACK_HUB_GEMINI_API_KEY before embedding feedback."
 
 
 class EmbeddingStatusOut(BaseModel):
@@ -45,8 +45,8 @@ class EmbeddingStatusOut(BaseModel):
         return cls(
             id=None,
             status="idle",
-            model=settings.huggingface_embedding_model,
-            dimensions=settings.huggingface_embedding_dimensions,
+            model=settings.gemini_embedding_model,
+            dimensions=settings.gemini_embedding_dimensions,
             embedded_count=0,
             skipped_count=0,
             unchanged_count=0,
@@ -84,7 +84,7 @@ def _schedule(
     dimensions: int,
     batch_size: int,
 ) -> None:
-    client: EmbeddingClient = request.app.state.huggingface
+    client: EmbeddingClient = request.app.state.gemini
     database: Database = request.app.state.database
     task = asyncio.create_task(
         run_embeddings(
@@ -118,7 +118,7 @@ async def start_embeddings(
     database: Annotated[Database, Depends(get_database)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> EmbeddingStatusOut:
-    if settings.huggingface_token is None:
+    if settings.gemini_api_key is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NOT_CONFIGURED)
     async with database.user_transaction(user) as conn:
         workspace = await ensure_workspace(conn, default_workspace_name(user.email))
@@ -132,9 +132,9 @@ async def start_embeddings(
                 actor_id=user.id,
                 product_id=product.id,
                 provider=PROVIDER,
-                model=settings.huggingface_embedding_model,
-                model_version=settings.huggingface_embedding_version,
-                dimensions=settings.huggingface_embedding_dimensions,
+                model=settings.gemini_embedding_model,
+                model_version=settings.gemini_embedding_version,
+                dimensions=settings.gemini_embedding_dimensions,
             )
         except EmbeddingRunAlreadyActiveError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, ALREADY_RUNNING) from exc
@@ -154,16 +154,16 @@ async def start_embeddings(
         tenant_id=workspace.tenant_id,
         product_id=product.id,
         provider=PROVIDER,
-        model=settings.huggingface_embedding_model,
-        model_version=settings.huggingface_embedding_version,
-        dimensions=settings.huggingface_embedding_dimensions,
-        batch_size=settings.huggingface_embedding_batch_size,
+        model=settings.gemini_embedding_model,
+        model_version=settings.gemini_embedding_version,
+        dimensions=settings.gemini_embedding_dimensions,
+        batch_size=settings.gemini_embedding_batch_size,
     )
     return EmbeddingStatusOut(
         id=run_id,
         status="queued",
-        model=settings.huggingface_embedding_model,
-        dimensions=settings.huggingface_embedding_dimensions,
+        model=settings.gemini_embedding_model,
+        dimensions=settings.gemini_embedding_dimensions,
         embedded_count=0,
         skipped_count=0,
         unchanged_count=0,

@@ -47,13 +47,13 @@ class Settings(BaseSettings):
         }
     )
 
-    huggingface_token: SecretStr | None = None
-    huggingface_api_base_url: str = "https://router.huggingface.co"
-    huggingface_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    huggingface_embedding_dimensions: Literal[384] = 384
-    huggingface_embedding_version: str = "1"
-    huggingface_timeout_seconds: float = Field(default=30.0, gt=0)
-    huggingface_embedding_batch_size: int = Field(default=16, ge=1, le=32)
+    gemini_api_key: SecretStr | None = None
+    gemini_api_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_dimensions: Literal[768] = 768
+    gemini_embedding_version: str = "1"
+    gemini_timeout_seconds: float = Field(default=30.0, gt=0)
+    gemini_embedding_batch_size: int = Field(default=16, ge=1, le=100)
 
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)

@@ -28,7 +28,7 @@ async def embedding_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     settings = Settings(environment="test", database_url=None, supabase_url=SUPABASE_URL)
     app = create_app(settings)
     app.state.database = _Database()
-    app.state.huggingface = object()
+    app.state.gemini = object()
     app.state.import_tasks = set()
     app.dependency_overrides[get_database] = lambda: app.state.database
 
@@ -49,14 +49,14 @@ async def embedding_client(monkeypatch: pytest.MonkeyPatch) -> Any:
             yield client, tokens, app
 
 
-async def test_embedding_requires_a_huggingface_token(embedding_client: Any) -> None:
+async def test_embedding_requires_a_gemini_api_key(embedding_client: Any) -> None:
     client, tokens, _app = embedding_client
     headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
 
     response = await client.post("/v1/feedback/embeddings", headers=headers)
 
     assert response.status_code == 503
-    assert "FEEDBACK_HUB_HUGGINGFACE_TOKEN" in response.json()["detail"]
+    assert "FEEDBACK_HUB_GEMINI_API_KEY" in response.json()["detail"]
 
 
 async def test_embedding_is_queued(embedding_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,7 +67,7 @@ async def test_embedding_is_queued(embedding_client: Any, monkeypatch: pytest.Mo
         environment="test",
         database_url=None,
         supabase_url=SUPABASE_URL,
-        huggingface_token=SecretStr("hf-test-token"),
+        gemini_api_key=SecretStr("gemini-test-key"),
     )
 
     async def workspace(conn: object, name: str) -> Workspace:

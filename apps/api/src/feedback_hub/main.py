@@ -13,7 +13,7 @@ from feedback_hub.api import csv_import, embeddings, health, imports, me, produc
 from feedback_hub.auth import SupabaseJwtVerifier
 from feedback_hub.config import Settings, get_settings
 from feedback_hub.db.engine import Database
-from feedback_hub.feedback.embeddings import EmbeddingClient, build_huggingface_client
+from feedback_hub.feedback.embeddings import EmbeddingClient, build_gemini_client
 from feedback_hub.github.client import GitHubClient, build_http_client
 from feedback_hub.observability import metrics_middleware
 
@@ -26,12 +26,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with AsyncExitStack() as stack:
         github_http = await stack.enter_async_context(build_http_client(settings))
         app.state.github = GitHubClient(github_http)
-        huggingface_http = await stack.enter_async_context(build_huggingface_client(settings))
-        app.state.huggingface = EmbeddingClient(
-            huggingface_http,
-            base_url=settings.huggingface_api_base_url,
-            model=settings.huggingface_embedding_model,
-            dimensions=settings.huggingface_embedding_dimensions,
+        gemini_http = await stack.enter_async_context(build_gemini_client(settings))
+        app.state.gemini = EmbeddingClient(
+            gemini_http,
+            base_url=settings.gemini_api_base_url,
+            model=settings.gemini_embedding_model,
+            dimensions=settings.gemini_embedding_dimensions,
         )
 
         if settings.supabase_url is not None:

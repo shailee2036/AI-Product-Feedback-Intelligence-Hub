@@ -96,7 +96,7 @@ async def api(database_url: str, tokens: TokenFactory) -> AsyncIterator[httpx.As
         environment="test",
         database_url=SecretStr(database_url),
         supabase_url=SUPABASE_URL,
-        huggingface_token=SecretStr("hf-test-token"),
+        gemini_api_key=SecretStr("gemini-test-key"),
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app), httpx.AsyncClient() as http:
