@@ -84,6 +84,7 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | GET | `/metrics` | none (cluster-internal) | Prometheus metrics |
 | POST | `/v1/repositories/eligibility` | none | Check whether a public repository is eligible |
 | GET | `/v1/me` | user | Current user; creates the workspace on first call |
+| GET | `/v1/audit` | user | Recent workspace actions; append-only |
 | GET | `/v1/product` | user | The workspace's registered product |
 | POST | `/v1/product/github` | user | Register the workspace product from an eligible repository |
 | POST | `/v1/imports` | user | Import the registered repository's most recently updated issues |
@@ -129,6 +130,8 @@ the last 90 days. Other open issues in the theme, and open issues outside it wit
 at least 0.86, are shown as possible duplicates. When a canonical issue exists, the theme also
 drafts a comment from the brief and related CSV titles, plus labels from product areas. Saving
 that draft keeps it in the workspace. Nothing is created, closed, or commented on GitHub.
+The workspace also keeps the latest 20 actions, newest first. Reading that list does not add an
+event, and the stored rows cannot be updated or deleted.
 Feedback bodies stay in the database.
 
 Validate the seed fixtures:
