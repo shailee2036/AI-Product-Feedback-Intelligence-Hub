@@ -93,6 +93,12 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/product/csv` | user | Upload a customer-feedback CSV for the registered product |
 | POST | `/v1/feedback/embeddings` | user | Embed saved feedback with Gemini embedding-001 |
 | GET | `/v1/feedback/embeddings/current` | user | Latest embedding run and how many vectors are stored |
+| POST | `/v1/feedback/duplicates` | user | Rebuild exact and semantic duplicate links |
+| GET | `/v1/feedback/duplicates` | user | Latest duplicate groups; original rows are unchanged |
+
+Exact duplicates share a hash of the redacted text. Semantic duplicates are mutual nearest
+neighbors with cosine similarity of at least 0.86. A starter set of labeled seed pairs is scored
+with each run. The full 200-pair review is later manual labeling.
 
 Validate the seed fixtures:
 
