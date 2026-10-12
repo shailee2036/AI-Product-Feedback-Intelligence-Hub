@@ -120,7 +120,13 @@ in the last 90 days, source mix (one source is 0.5 and two or more is 1), volume
 rows inside the theme are counted once, and completeness (a stored name plus the share of rows
 with an embedding). The score is not asked of a model. An approved theme can get a product
 brief from up to six redacted titles. The brief cites only rows in that theme, and writing it
-again replaces the current text and keeps every earlier version. Feedback bodies stay in the database.
+again replaces the current text and keeps every earlier version. Each theme also recommends
+one imported GitHub issue as the canonical issue. Open issues rank ahead of closed ones. The
+score then averages semantic coverage (mean similarity to the other rows in the theme),
+discussion (full at 10 comments), reactions (full at 10), and whether the issue was updated in
+the last 90 days. Other open issues in the theme, and open issues outside it with similarity of
+at least 0.86, are shown as possible duplicates. Nothing is created, closed, or commented on
+GitHub. Feedback bodies stay in the database.
 
 Validate the seed fixtures:
 
