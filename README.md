@@ -49,7 +49,15 @@ kubeconform -strict -summary -kubernetes-version 1.37.0 rendered.yaml
 conftest test --policy deploy/policy rendered.yaml
 ```
 
-`latest` is rejected. The policy in `deploy/policy` rejects privileged containers, mutable image tags, missing probes, missing CPU and memory requests or limits, host networking, GPU resources, and embedded secrets. CI does not install the chart to a cluster.
+`latest` is rejected. The policy in `deploy/policy` rejects privileged containers, mutable image tags, missing probes, missing CPU and memory requests or limits, host networking, GPU resources, and embedded secrets.
+
+CI then installs the chart on a temporary kind cluster, checks `/health/live` and `/health/ready`, and deletes the cluster. That smoke test does not use real credentials.
+
+```bash
+bash deploy/scripts/kind-smoke.sh
+```
+
+The local command needs Docker, Helm, kind, and kubectl.
 
 ### Frontend
 
