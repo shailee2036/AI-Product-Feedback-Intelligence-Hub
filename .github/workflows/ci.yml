@@ -264,7 +264,7 @@ jobs:
           tar -xzf conftest.tar.gz
           sudo mv conftest /usr/local/bin/conftest
           conftest --version
-      - name: Lint, render, and validate the API chart
+      - name: Lint, render, and validate the charts
         run: |
           tag="${GITHUB_SHA}"
           helm lint deploy/charts/api --set "image.tag=${tag}"
@@ -279,6 +279,10 @@ jobs:
           fi
           kubeconform -strict -summary -kubernetes-version 1.37.0 rendered.yaml
           conftest test --policy deploy/policy rendered.yaml
+          helm lint deploy/charts/litellm
+          helm template feedback-hub-litellm deploy/charts/litellm > litellm.yaml
+          kubeconform -strict -summary -kubernetes-version 1.37.0 litellm.yaml
+          conftest test --policy deploy/policy litellm.yaml
           if conftest test --policy deploy/policy deploy/policy/testdata/rejected.yaml; then
             echo "Policy did not reject the fixture."
             exit 1
@@ -286,7 +290,7 @@ jobs:
 
   chart-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: [container-build-scan]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

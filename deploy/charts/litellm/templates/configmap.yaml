@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "feedback-hub-litellm.name" . }}
+  labels:
+    {{- include "feedback-hub-litellm.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    model_list:
+    {{- range .Values.models }}
+      - model_name: {{ .name | quote }}
+        litellm_params:
+          model: {{ .model | quote }}
+          api_key: {{ printf "os.environ/%s" .apiKeyEnv | quote }}
+          rpm: {{ .rpm }}
+          tpm: {{ .tpm }}
+    {{- end }}
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
+    litellm_settings:
+      request_timeout: {{ .Values.requestTimeoutSeconds }}
+      num_retries: 0

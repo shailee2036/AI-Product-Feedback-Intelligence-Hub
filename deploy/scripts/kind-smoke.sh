@@ -52,4 +52,29 @@ check_health() {
 
 check_health /health/live
 check_health /health/ready
+
+kubectl --context "$context" create secret generic feedback-hub-litellm \
+  --from-literal=GROQ_API_KEY=smoke-not-a-key \
+  --from-literal=LITELLM_MASTER_KEY="sk-smoke-$(openssl rand -hex 16)"
+
+if ! helm upgrade --install feedback-hub-litellm deploy/charts/litellm \
+  --kube-context "$context" \
+  --wait \
+  --timeout 300s; then
+  kubectl --context "$context" describe pods --selector app.kubernetes.io/name=feedback-hub-litellm || true
+  kubectl --context "$context" logs --selector app.kubernetes.io/name=feedback-hub-litellm --tail=50 || true
+  exit 1
+fi
+
+proxy_status() {
+  local path="$1"
+  kubectl --context "$context" exec deploy/feedback-hub-api -- python -c 'import sys,urllib.error,urllib.request
+try:
+    print(urllib.request.urlopen(sys.argv[1], timeout=5).status)
+except urllib.error.HTTPError as error:
+    print(error.code)' "http://feedback-hub-litellm:4000${path}"
+}
+
+[[ "$(proxy_status /health/readiness)" == "200" ]] || { echo "LiteLLM is not ready."; exit 1; }
+[[ "$(proxy_status /v1/models)" == "401" ]] || { echo "LiteLLM accepted a request without the master key."; exit 1; }
 echo "smoke-ok"

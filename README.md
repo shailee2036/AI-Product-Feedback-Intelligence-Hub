@@ -59,6 +59,21 @@ bash deploy/scripts/kind-smoke.sh
 
 The local command needs Docker, Helm, kind, and kubectl.
 
+### LiteLLM chart
+
+The chart in `deploy/charts/litellm` runs the LiteLLM proxy on CPU from a pinned non-root image. It routes `theme-writer` to Groq `openai/gpt-oss-20b`, refuses requests above the free-plan limits of 30 per minute and 8,000 tokens per minute, uses a 12-second timeout, and does not retry. Only pods labeled `app.kubernetes.io/name: feedback-hub-api` can reach it.
+
+Create a Secret named `feedback-hub-litellm` with `GROQ_API_KEY` and `LITELLM_MASTER_KEY` (starting with `sk-`) before installing. The chart does not contain either value. The API still calls Groq directly; switching it to the proxy is a separate change.
+
+```bash
+helm lint deploy/charts/litellm
+helm template feedback-hub-litellm deploy/charts/litellm > litellm.yaml
+kubeconform -strict -summary -kubernetes-version 1.37.0 litellm.yaml
+conftest test --policy deploy/policy litellm.yaml
+```
+
+The kind smoke test also installs this chart with placeholder keys, checks readiness from the API pod, and confirms that a request without the master key is refused.
+
 ### API image SBOM and signature
 
 After the Trivy scan passes, CI writes a CycloneDX SBOM for the API image and keeps it for 30 days as the `feedback-hub-api-sbom` workflow artifact. Pull requests never push an image.
