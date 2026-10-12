@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID
 
 from feedback_hub.auth import AuthenticatedUser
@@ -15,6 +16,7 @@ from feedback_hub.feedback.embeddings import EmbeddingClient, EmbeddingError
 from feedback_hub.feedback.normalize import PreparedText, prepare_text, source_text
 
 Pending = tuple[UUID, PreparedText]
+BATCH_PAUSE_SECONDS = 12.0
 
 
 async def run_embeddings(
@@ -110,7 +112,28 @@ async def _run(
     embedded = 0
     for start in range(0, len(pending), batch_size):
         batch = pending[start : start + batch_size]
-        vectors = await client.embed([prepared.text for _, prepared in batch])
+        try:
+            vectors = await client.embed([prepared.text for _, prepared in batch])
+        except EmbeddingError as exc:
+            async with database.user_transaction(user) as conn:
+                await mark_embedding_failed(
+                    conn,
+                    run_id,
+                    str(exc),
+                    embedded_count=embedded,
+                    skipped_count=skipped,
+                    unchanged_count=unchanged,
+                    redaction_count=redactions,
+                )
+                await record_audit_event(
+                    conn,
+                    tenant_id=tenant_id,
+                    actor_id=user.id,
+                    action="embedding.failed",
+                    target_type="embedding_run",
+                    target_id=str(run_id),
+                )
+            return
         async with database.user_transaction(user) as conn:
             for (item_id, prepared), vector in zip(batch, vectors, strict=True):
                 await save_embedding(
@@ -129,6 +152,8 @@ async def _run(
                     redaction_count=prepared.redaction_count,
                 )
         embedded += len(batch)
+        if start + batch_size < len(pending):
+            await asyncio.sleep(BATCH_PAUSE_SECONDS)
 
     async with database.user_transaction(user) as conn:
         await mark_embedding_finished(

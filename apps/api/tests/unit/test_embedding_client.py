@@ -65,3 +65,24 @@ async def test_client_reports_provider_status_without_the_body() -> None:
 
 def test_quota_is_explained() -> None:
     assert "quota" in str(EmbeddingProviderError(429))
+
+
+@respx.mock
+async def test_client_retries_a_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("feedback_hub.feedback.embeddings._RETRY_DELAYS_SECONDS", (0.0,))
+    route = respx.post(URL)
+    route.side_effect = [
+        httpx.Response(429, json={"error": "slow down"}),
+        httpx.Response(200, json={"embeddings": [{"values": [3.0, 4.0]}]}),
+    ]
+    async with httpx.AsyncClient() as http:
+        client = EmbeddingClient(
+            http,
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            model="test-model",
+            dimensions=2,
+        )
+        vectors = await client.embed(["login fails"])
+
+    assert vectors[0] == pytest.approx([0.6, 0.8])
+    assert route.call_count == 2

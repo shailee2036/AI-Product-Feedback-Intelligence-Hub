@@ -1,5 +1,6 @@
+import asyncio
 import math
-from typing import TypeGuard
+from typing import Any, TypeGuard
 
 import httpx
 
@@ -23,6 +24,9 @@ def build_gemini_client(settings: Settings) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=settings.gemini_timeout_seconds, headers=headers)
 
 
+_RETRY_DELAYS_SECONDS = (15.0, 30.0, 60.0)
+
+
 class EmbeddingClient:
     def __init__(
         self, http: httpx.AsyncClient, *, base_url: str, model: str, dimensions: int
@@ -35,25 +39,35 @@ class EmbeddingClient:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        response = await self._http.post(
-            self._url,
-            json={
-                "requests": [
-                    {
-                        "model": self._model,
-                        "content": {"parts": [{"text": text}]},
-                        "taskType": "CLUSTERING",
-                        "outputDimensionality": self._dimensions,
-                    }
-                    for text in texts
-                ]
-            },
-        )
+        body = {
+            "requests": [
+                {
+                    "model": self._model,
+                    "content": {"parts": [{"text": text}]},
+                    "taskType": "CLUSTERING",
+                    "outputDimensionality": self._dimensions,
+                }
+                for text in texts
+            ]
+        }
+        response = await self._post_with_backoff(body)
         if response.is_error:
             raise EmbeddingProviderError(response.status_code)
         return parse_gemini_embeddings(
             response.json(), count=len(texts), dimensions=self._dimensions
         )
+
+    async def _post_with_backoff(self, body: dict[str, Any]) -> httpx.Response:
+        delays = iter(_RETRY_DELAYS_SECONDS)
+        response = await self._http.post(self._url, json=body)
+        while response.status_code == 429:
+            try:
+                delay = next(delays)
+            except StopIteration:
+                return response
+            await asyncio.sleep(_retry_delay(response, delay))
+            response = await self._http.post(self._url, json=body)
+        return response
 
 
 def parse_gemini_embeddings(payload: object, *, count: int, dimensions: int) -> list[list[float]]:
@@ -80,6 +94,14 @@ def vector_literal(values: list[float]) -> str:
     return "[" + ",".join(f"{value:.8f}" for value in values) + "]"
 
 
+def _retry_delay(response: httpx.Response, fallback: float) -> float:
+    try:
+        hinted = float(response.headers.get("retry-after", ""))
+    except ValueError:
+        return fallback
+    return hinted if hinted > 0 else fallback
+
+
 def _normalize(values: list[float]) -> list[float]:
     norm = math.sqrt(sum(value * value for value in values))
     if norm == 0:
@@ -99,7 +121,10 @@ def _provider_message(status_code: int) -> str:
     if status_code in {401, 403}:
         return "The Gemini API key was rejected."
     if status_code == 429:
-        return "Gemini embedding quota was reached. Try again later."
+        return (
+            "Gemini's free-tier quota was reached. Saved embeddings are kept. "
+            "Try again in a minute."
+        )
     if status_code in {503, 504}:
         return "The embedding model is unavailable. Try again in a minute."
     return f"Gemini returned HTTP {status_code}."

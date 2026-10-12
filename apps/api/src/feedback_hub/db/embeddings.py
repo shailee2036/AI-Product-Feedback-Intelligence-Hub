@@ -135,13 +135,31 @@ async def mark_embedding_finished(
     )
 
 
-async def mark_embedding_failed(conn: AsyncConnection, run_id: UUID, error_message: str) -> None:
+async def mark_embedding_failed(
+    conn: AsyncConnection,
+    run_id: UUID,
+    error_message: str,
+    *,
+    embedded_count: int = 0,
+    skipped_count: int = 0,
+    unchanged_count: int = 0,
+    redaction_count: int = 0,
+) -> None:
     await conn.execute(
         text(
             "update public.embedding_runs set status = 'failed', error_message = :error_message, "
+            "embedded_count = :embedded_count, skipped_count = :skipped_count, "
+            "unchanged_count = :unchanged_count, redaction_count = :redaction_count, "
             "finished_at = now() where id = :id and status in ('queued', 'running')"
         ),
-        {"id": run_id, "error_message": error_message},
+        {
+            "id": run_id,
+            "error_message": error_message,
+            "embedded_count": embedded_count,
+            "skipped_count": skipped_count,
+            "unchanged_count": unchanged_count,
+            "redaction_count": redaction_count,
+        },
     )
 
 
