@@ -200,8 +200,8 @@ describe("API client", () => {
     const status = {
       id: "5f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
       status: "queued",
-      model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-      dimensions: 384,
+      model: "gemini-embedding-001",
+      dimensions: 768,
       embedded_count: 0,
       skipped_count: 0,
       unchanged_count: 0,

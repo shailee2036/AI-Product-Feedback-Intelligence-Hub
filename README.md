@@ -91,7 +91,7 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/imports/{import_id}/cancel` | user | Cancel a queued or running import |
 | GET | `/v1/feedback` | user | Imported issues and CSV rows for the registered product |
 | POST | `/v1/product/csv` | user | Upload a customer-feedback CSV for the registered product |
-| POST | `/v1/feedback/embeddings` | user | Embed saved feedback with the pinned Hugging Face model |
+| POST | `/v1/feedback/embeddings` | user | Embed saved feedback with Gemini embedding-001 |
 | GET | `/v1/feedback/embeddings/current` | user | Latest embedding run and how many vectors are stored |
 
 Validate the seed fixtures:
