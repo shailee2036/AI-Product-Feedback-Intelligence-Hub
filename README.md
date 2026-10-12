@@ -112,7 +112,11 @@ least three rows. A starter set of seed themes is scored with each run. Naming s
 redacted titles per theme to Groq in one request and stores a short name and summary. A name
 already stored, including one marked as edited, stays in place. Approving a theme keeps it
 when themes are found again. Open and dismissed themes are replaced. Merge moves every row
-into another theme. Split moves the selected rows into a new theme.
+into another theme. Split moves the selected rows into a new theme. Each theme also has a
+score that averages five factors from the stored rows: size (full at 10 rows), the share created
+in the last 90 days, source mix (one source is 0.5 and two or more is 1), volume after duplicate
+rows inside the theme are counted once, and completeness (a stored name plus the share of rows
+with an embedding). The score is not asked of a model.
 
 Validate the seed fixtures:
 
