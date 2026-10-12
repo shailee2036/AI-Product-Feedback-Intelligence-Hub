@@ -215,6 +215,24 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+      - name: Generate image SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: feedback-hub-api:${{ github.sha }}
+          format: cyclonedx
+          output: feedback-hub-api.cdx.json
+          skip-setup-trivy: true
+      - name: Check SBOM
+        run: |
+          jq -e '.bomFormat == "CycloneDX" and (.components | length) > 0' feedback-hub-api.cdx.json > /dev/null
+          jq -e '[.components[].name] | index("fastapi")' feedback-hub-api.cdx.json > /dev/null
+      - name: Upload SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: feedback-hub-api-sbom
+          path: feedback-hub-api.cdx.json
+          retention-days: 30
+          if-no-files-found: error
 
   helm-lint:
     runs-on: ubuntu-latest

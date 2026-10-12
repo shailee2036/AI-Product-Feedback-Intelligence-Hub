@@ -59,6 +59,26 @@ bash deploy/scripts/kind-smoke.sh
 
 The local command needs Docker, Helm, kind, and kubectl.
 
+### API image SBOM and signature
+
+After the Trivy scan passes, CI writes a CycloneDX SBOM for the API image and keeps it for 30 days as the `feedback-hub-api-sbom` workflow artifact. Pull requests never push an image.
+
+```bash
+docker build --tag "feedback-hub-api:$(git rev-parse HEAD)" apps/api
+trivy image --format cyclonedx --output feedback-hub-api.cdx.json "feedback-hub-api:$(git rev-parse HEAD)"
+```
+
+When CI passes on a push to `main`, the `publish` workflow pushes `ghcr.io/shailee2036/feedback-hub-api:<commit sha>`, signs the digest with keyless Cosign, attaches the SBOM as a signed attestation, and verifies both. The digest appears in the run summary. To check an image:
+
+```bash
+cosign verify \
+  --certificate-identity "https://github.com/shailee2036/AI-Product-Feedback-Intelligence-Hub/.github/workflows/publish.yml@refs/heads/main" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/shailee2036/feedback-hub-api@<digest>
+```
+
+Nothing is deployed by this workflow.
+
 ### Frontend
 
 Requires Node.js 22 or newer and the backend running on `http://127.0.0.1:8000`.
