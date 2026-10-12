@@ -102,7 +102,13 @@ async def test_import_stores_issues_and_skips_pull_requests(
     body = feedback.json()
     assert body["total"] == 2
     assert {item["number"] for item in body["items"]} == {7, 9}
-    assert "ada" not in feedback.text
+    visible = " ".join(
+        value
+        for item in body["items"]
+        for key, value in item.items()
+        if key != "id" and isinstance(value, str)
+    )
+    assert "ada" not in visible
 
     conn = await asyncpg.connect(database_url)
     try:

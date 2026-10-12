@@ -302,6 +302,7 @@ describe("API client", () => {
             named: true,
             score: 0.62,
           },
+          brief: null,
           members: [
             {
               id: "6f0c7a52-79a1-4a8a-9d43-5d1f9c1a2b3c",
