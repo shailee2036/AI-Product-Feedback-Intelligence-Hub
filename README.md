@@ -105,6 +105,8 @@ Never apply `supabase/tests/auth_stub.sql` to a real Supabase project.
 | POST | `/v1/feedback/clusters/{cluster_id}/brief` | user | Write an evidence-linked brief for an approved theme |
 | PATCH | `/v1/feedback/clusters/{cluster_id}/brief` | user | Save an edited brief and keep earlier versions |
 | POST | `/v1/feedback/clusters/{cluster_id}/suggestion` | user | Save a suggested comment and labels locally |
+| POST | `/v1/feedback/clusters/{cluster_id}/issue-draft` | user | Preview a new issue draft and similar open issues |
+| POST | `/v1/feedback/clusters/{cluster_id}/issue-draft/confirmation` | user | Save a confirmed new-issue draft locally |
 
 Exact duplicates share a hash of the redacted text. Semantic duplicates are mutual nearest
 neighbors with cosine similarity of at least 0.86. A starter set of labeled seed pairs is scored
@@ -129,6 +131,10 @@ the last 90 days. Other open issues in the theme, and open issues outside it wit
 at least 0.86, are shown as possible duplicates. When a canonical issue exists, the theme also
 drafts a comment from the brief and related CSV titles, plus labels from product areas. Saving
 that draft keeps it in the workspace. Nothing is created, closed, or commented on GitHub.
+A new issue draft is available only after the maintainer chooses "No suitable existing issue" on an
+approved theme. The draft lists every open issue already in the theme, and any open issue outside
+it with similarity of at least 0.86. Saving requires an explicit confirmation and keeps the title
+and body in the workspace. Asking to create the issue on GitHub is rejected.
 Feedback bodies stay in the database.
 
 Validate the seed fixtures:
