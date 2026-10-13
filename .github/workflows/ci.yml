@@ -236,7 +236,7 @@ jobs:
 
   helm-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -283,6 +283,20 @@ jobs:
           helm template feedback-hub-litellm deploy/charts/litellm > litellm.yaml
           kubeconform -strict -summary -kubernetes-version 1.37.0 litellm.yaml
           conftest test --policy deploy/policy litellm.yaml
+          helm lint deploy/charts/monitoring --strict
+          helm template feedback-hub-monitoring deploy/charts/monitoring > monitoring.yaml
+          kubeconform -strict -summary -kubernetes-version 1.37.0 monitoring.yaml
+          conftest test --policy deploy/policy monitoring.yaml
+          for dashboard in deploy/charts/monitoring/dashboards/*.json; do
+            jq -e '.uid and .title and (.panels | length > 0)' "$dashboard" > /dev/null
+          done
+          mkdir -p prometheus-config
+          helm template feedback-hub-monitoring deploy/charts/monitoring --show-only templates/prometheus-configmap.yaml > prometheus-configmap.yaml
+          yq '.data["prometheus.yml"]' prometheus-configmap.yaml > prometheus-config/prometheus.yml
+          yq '.data["rules.yml"]' prometheus-configmap.yaml > prometheus-config/rules.yml
+          prometheus_image="$(yq '.prometheus.image.repository + "@" + .prometheus.image.digest' deploy/charts/monitoring/values.yaml)"
+          docker run --rm -v "${PWD}/prometheus-config:/etc/prometheus:ro" --entrypoint promtool "$prometheus_image" check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "${PWD}/prometheus-config:/etc/prometheus:ro" --entrypoint promtool "$prometheus_image" check rules /etc/prometheus/rules.yml
           if conftest test --policy deploy/policy deploy/policy/testdata/rejected.yaml; then
             echo "Policy did not reject the fixture."
             exit 1
