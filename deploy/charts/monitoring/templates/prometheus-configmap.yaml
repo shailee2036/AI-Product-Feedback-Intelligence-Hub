@@ -79,3 +79,23 @@ data:
               severity: warning
             annotations:
               summary: An API pod restarted more than {{ $alerts.restartsPer30m }} times in 30 minutes.
+          - alert: FeedbackHubGenerationFailing
+            expr: |
+              sum(rate(feedback_hub_provider_requests_total{operation=~"theme_names|brief",result!="ok"}[10m]))
+                / sum(rate(feedback_hub_provider_requests_total{operation=~"theme_names|brief"}[10m]))
+                > {{ $alerts.providerFailureRatio }}
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: More than {{ mulf $alerts.providerFailureRatio 100 }}% of theme naming or brief calls failed for 10 minutes.
+          - alert: FeedbackHubEmbeddingFailing
+            expr: |
+              sum(rate(feedback_hub_provider_requests_total{operation="embedding",result!="ok"}[10m]))
+                / sum(rate(feedback_hub_provider_requests_total{operation="embedding"}[10m]))
+                > {{ $alerts.providerFailureRatio }}
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: More than {{ mulf $alerts.providerFailureRatio 100 }}% of embedding calls failed for 10 minutes.
