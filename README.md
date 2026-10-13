@@ -85,7 +85,7 @@ docker build --tag "feedback-hub-api:$(git rev-parse HEAD)" apps/api
 trivy image --format cyclonedx --output feedback-hub-api.cdx.json "feedback-hub-api:$(git rev-parse HEAD)"
 ```
 
-When CI passes on a push to `main`, the `publish` workflow pushes `ghcr.io/shailee2036/feedback-hub-api:<commit sha>`, signs the digest with keyless Cosign, attaches the SBOM as a signed attestation, and verifies both. The digest appears in the run summary. To check an image:
+When CI passes on a push to `main`, the `publish` workflow pushes `ghcr.io/shailee2036/feedback-hub-api:<commit sha>` for `linux/amd64` and `linux/arm64` (so it runs on ARM nodes such as Oracle Cloud's free Ampere servers), signs the digest with keyless Cosign, attaches the SBOM as a signed attestation, and verifies both. The digest appears in the run summary. To check an image:
 
 ```bash
 cosign verify \
