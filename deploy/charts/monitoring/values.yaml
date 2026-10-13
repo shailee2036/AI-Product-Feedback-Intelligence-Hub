@@ -1,6 +1,6 @@
 prometheus:
   image:
-    repository: prom/prometheus
+    repository: docker.io/prom/prometheus
     tag: v3.15.0
     digest: sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     pullPolicy: IfNotPresent
@@ -37,7 +37,7 @@ prometheus:
 
 grafana:
   image:
-    repository: grafana/grafana
+    repository: docker.io/grafana/grafana
     tag: 13.2.4
     digest: sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     pullPolicy: IfNotPresent
