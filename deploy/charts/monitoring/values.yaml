@@ -1,0 +1,57 @@
+prometheus:
+  image:
+    repository: prom/prometheus
+    tag: v3.15.0
+    digest: sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    pullPolicy: IfNotPresent
+
+  port: 9090
+  scrapeInterval: 15s
+
+  # Running pods in the release namespace with this app name are scraped on the named
+  # container port. Discovery is limited to that namespace by a Role, not a ClusterRole.
+  scrapeTargets:
+    - job: feedback-hub-api
+      appName: feedback-hub-api
+      portName: http
+      path: /metrics
+
+  # Data is kept in an emptyDir and is lost when the pod is rescheduled.
+  retention:
+    time: 7d
+    size: 1GB
+  storageSizeLimit: 2Gi
+
+  alerts:
+    errorRatio: 0.05
+    latencyP95Seconds: 2
+    restartsPer30m: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+grafana:
+  image:
+    repository: grafana/grafana
+    tag: 13.2.4
+    digest: sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    pullPolicy: IfNotPresent
+
+  port: 3000
+
+  # Name of a Secret created outside this chart with keys admin-user and admin-password.
+  # Do not put those values here.
+  existingSecret: feedback-hub-grafana
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
