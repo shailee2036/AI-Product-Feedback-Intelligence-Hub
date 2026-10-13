@@ -76,6 +76,24 @@ conftest test --policy deploy/policy litellm.yaml
 
 The kind smoke test also installs this chart with placeholder keys, checks readiness from the API pod, and confirms that a request without the master key is refused.
 
+### Monitoring chart
+
+The chart in `deploy/charts/monitoring` runs Prometheus and Grafana from pinned non-root images in the same namespace as the API. Prometheus finds running API pods through a namespace-scoped Role and scrapes `/metrics` every 15 seconds. It keeps 7 days of data, up to 1 GB, in an `emptyDir`, so history is lost when the pod moves to another node.
+
+Grafana loads the Prometheus datasource and the **API service health** dashboard from `deploy/charts/monitoring/dashboards`. The dashboard shows request rate by route and status, the 5xx ratio, p50, p95, and p99 latency, and the API process's CPU, memory, and restarts. Prometheus also evaluates four alert rules: no API pod scraped for 5 minutes, more than 5% 5xx responses for 10 minutes, p95 latency above 2 seconds for 10 minutes, and more than 2 restarts in 30 minutes. Alerts appear in Prometheus but are not sent anywhere yet.
+
+Create a Secret named `feedback-hub-grafana` with `admin-user` and `admin-password` before installing. Anonymous access and sign-up are off.
+
+```bash
+kubectl -n feedback-hub create secret generic feedback-hub-grafana \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$(openssl rand -hex 16)"
+helm upgrade --install feedback-hub-monitoring deploy/charts/monitoring -n feedback-hub --wait
+kubectl -n feedback-hub port-forward service/feedback-hub-grafana 3001:3000
+```
+
+Open http://127.0.0.1:3001 and sign in with the Secret's values. CI lints and validates the chart, runs `promtool` on the rendered Prometheus config and rules, and the kind smoke test checks that Prometheus scrapes the API and that Grafana loads the dashboard.
+
 ### API image SBOM and signature
 
 After the Trivy scan passes, CI writes a CycloneDX SBOM for the API image and keeps it for 30 days as the `feedback-hub-api-sbom` workflow artifact. Pull requests never push an image.

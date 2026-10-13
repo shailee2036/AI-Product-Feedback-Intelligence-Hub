@@ -77,4 +77,42 @@ except urllib.error.HTTPError as error:
 
 [[ "$(proxy_status /health/readiness)" == "200" ]] || { echo "LiteLLM is not ready."; exit 1; }
 [[ "$(proxy_status /v1/models)" == "401" ]] || { echo "LiteLLM accepted a request without the master key."; exit 1; }
+
+kubectl --context "$context" create secret generic feedback-hub-grafana \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$(openssl rand -hex 16)"
+
+if ! helm upgrade --install feedback-hub-monitoring deploy/charts/monitoring \
+  --kube-context "$context" \
+  --wait \
+  --timeout 300s; then
+  kubectl --context "$context" describe pods --selector app.kubernetes.io/part-of=feedback-hub-monitoring || true
+  kubectl --context "$context" logs --selector app.kubernetes.io/part-of=feedback-hub-monitoring --tail=50 || true
+  exit 1
+fi
+
+prometheus() {
+  kubectl --context "$context" exec deploy/feedback-hub-prometheus -- wget -qO- "http://127.0.0.1:9090$1"
+}
+
+scraped=""
+for _ in $(seq 1 24); do
+  if prometheus '/api/v1/query?query=up%7Bjob%3D%22feedback-hub-api%22%7D%3D%3D1' | grep -q '"job":"feedback-hub-api"'; then
+    scraped="yes"
+    break
+  fi
+  sleep 5
+done
+[[ -n "$scraped" ]] || { echo "Prometheus did not scrape the API."; exit 1; }
+
+rules="$(prometheus /api/v1/rules)"
+[[ "$(grep -o '"health":"ok"' <<<"$rules" | wc -l)" -eq 4 ]] || { echo "Prometheus did not load the alert rules."; exit 1; }
+
+grafana() {
+  kubectl --context "$context" exec deploy/feedback-hub-grafana -- sh -c \
+    'curl -fsS -u "$GF_SECURITY_ADMIN_USER:$GF_SECURITY_ADMIN_PASSWORD" "http://127.0.0.1:3000$1"' _ "$1"
+}
+
+grafana /api/datasources/uid/prometheus/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Prometheus."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-api | grep -q '"title":"API service health"' || { echo "Grafana did not load the dashboard."; exit 1; }
 echo "smoke-ok"

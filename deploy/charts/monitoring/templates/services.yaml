@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "feedback-hub-monitoring.prometheus" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.prometheus" .)) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.prometheus" .)) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.prometheus.port }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "feedback-hub-monitoring.grafana" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.grafana" .)) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.grafana" .)) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.grafana.port }}
+      targetPort: http
+      protocol: TCP

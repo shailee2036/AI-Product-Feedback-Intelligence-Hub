@@ -1,0 +1,81 @@
+{{- if not .Values.prometheus.scrapeTargets }}
+{{- fail "At least one scrape target is required." }}
+{{- end }}
+{{- $alerts := .Values.prometheus.alerts }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "feedback-hub-monitoring.prometheus" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.prometheus" .)) | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
+    rule_files:
+      - /etc/prometheus/rules.yml
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["127.0.0.1:{{ .Values.prometheus.port }}"]
+    {{- range .Values.prometheus.scrapeTargets }}
+      - job_name: {{ .job | quote }}
+        metrics_path: {{ .path | quote }}
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ $.Release.Namespace | quote }}
+            selectors:
+              - role: pod
+                label: {{ printf "app.kubernetes.io/name=%s" .appName | quote }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: {{ .portName | quote }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+    {{- end }}
+  rules.yml: |
+    groups:
+      - name: feedback-hub-api
+        rules:
+          - alert: FeedbackHubApiDown
+            expr: absent(up{job="feedback-hub-api"} == 1)
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: No API pod has been scraped successfully for 5 minutes.
+          - alert: FeedbackHubApiErrors
+            expr: |
+              sum(rate(feedback_hub_http_requests_total{job="feedback-hub-api",status=~"5.."}[5m]))
+                / sum(rate(feedback_hub_http_requests_total{job="feedback-hub-api"}[5m]))
+                > {{ $alerts.errorRatio }}
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: More than {{ mulf $alerts.errorRatio 100 }}% of API requests returned 5xx for 10 minutes.
+          - alert: FeedbackHubApiSlow
+            expr: |
+              histogram_quantile(0.95,
+                sum by (le) (rate(feedback_hub_http_request_duration_seconds_bucket{job="feedback-hub-api"}[5m]))
+              ) > {{ $alerts.latencyP95Seconds }}
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: API p95 latency has been above {{ $alerts.latencyP95Seconds }}s for 10 minutes.
+          - alert: FeedbackHubApiRestarting
+            expr: changes(process_start_time_seconds{job="feedback-hub-api"}[30m]) > {{ $alerts.restartsPer30m }}
+            labels:
+              severity: warning
+            annotations:
+              summary: An API pod restarted more than {{ $alerts.restartsPer30m }} times in 30 minutes.
