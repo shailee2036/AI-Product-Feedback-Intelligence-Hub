@@ -4,6 +4,11 @@ import time
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter
 from prometheus_client import Counter, Histogram
 
 _LOG = logging.getLogger(__name__)
@@ -54,6 +59,46 @@ def configure_logging() -> None:
     handler.setFormatter(JsonFormatter())
     logger.addHandler(handler)
     logger.propagate = False
+
+
+_SPAN_FIELDS = frozenset(
+    {
+        "http.method",
+        "http.route",
+        "http.status_code",
+        "error_category",
+        "operation",
+        "provider",
+        "model",
+        "result",
+        "duration_ms",
+    }
+)
+
+
+def configure_tracing(endpoint: str | None = None, *, exporter: SpanExporter | None = None) -> None:
+    """Export spans when a collector or test exporter is supplied. Safe to call again."""
+    if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+        return
+    if exporter is None and not endpoint:
+        return
+    provider = TracerProvider(resource=Resource.create({"service.name": "feedback-hub-api"}))
+    if exporter is not None:
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+    else:
+        base = endpoint.rstrip("/") if endpoint else ""
+        provider.add_span_processor(
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=f"{base}/v1/traces"))
+        )
+    trace.set_tracer_provider(provider)
+
+
+def _record_span(name: str, attributes: dict[str, str | int]) -> None:
+    span = trace.get_tracer("feedback_hub").start_span(name)
+    for key, value in attributes.items():
+        if key in _SPAN_FIELDS:
+            span.set_attribute(key, value)
+    span.end()
 
 
 def log_event(event: str, **fields: object) -> None:
@@ -142,6 +187,16 @@ def observe_provider_call(
         completion_tokens=completion_tokens,
         texts=texts,
     )
+    _record_span(
+        "provider_call",
+        {
+            "operation": operation,
+            "provider": provider,
+            "model": model,
+            "result": result,
+            "duration_ms": int(seconds * 1000),
+        },
+    )
 
 
 def _error_category(status: str) -> str | None:
@@ -176,6 +231,7 @@ async def metrics_middleware(
         HTTP_REQUESTS.labels(request.method, route, status).inc()
         HTTP_LATENCY.labels(request.method, route).observe(duration_ms / 1000)
         settings = getattr(request.app.state, "settings", None)
+        category = _error_category(status)
         log_event(
             "request",
             environment=getattr(settings, "environment", None),
@@ -183,5 +239,14 @@ async def metrics_middleware(
             route=route,
             status=status,
             duration_ms=duration_ms,
-            error_category=_error_category(status),
+            error_category=category,
         )
+        attributes: dict[str, str | int] = {
+            "http.method": request.method,
+            "http.route": route,
+            "http.status_code": int(status) if status.isdigit() else 500,
+            "duration_ms": duration_ms,
+        }
+        if category is not None:
+            attributes["error_category"] = category
+        _record_span("request", attributes)
