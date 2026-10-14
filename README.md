@@ -112,7 +112,9 @@ The same chart runs Loki and Grafana Alloy. Alloy reads pod logs in the release 
 
 Each API request and each provider call is one JSON line. The line has the route template, status, duration, operation, provider, model, and result. It does not include the request path, query string, feedback text, prompts, or credentials. `/metrics` scrapes are not logged.
 
-Open http://127.0.0.1:3001 and sign in with the Secret's values. CI lints and validates the chart, runs `promtool` on the rendered Prometheus config and rules, and the kind smoke test checks that Prometheus scrapes the API, that Grafana loads the dashboards, and that an API log line arrives in Loki.
+The same chart runs Tempo. The API exports a span for each request and each provider call when `otelEndpoint` is set to `http://feedback-hub-tempo:4318`. Span attributes use that same allowlist. Tempo keeps blocks in an `emptyDir`, so they are lost when that pod moves to another node. Grafana loads Tempo as a datasource.
+
+Open http://127.0.0.1:3001 and sign in with the Secret's values. CI lints and validates the chart, runs `promtool` on the rendered Prometheus config and rules, checks that Tempo starts, and the kind smoke test checks that Prometheus scrapes the API, that Grafana loads the dashboards, and that an API log line and an API trace arrive.
 
 ### API image SBOM and signature
 
