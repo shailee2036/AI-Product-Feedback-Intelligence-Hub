@@ -1,0 +1,87 @@
+{{- $tempo := .Values.tempo }}
+{{- if or (not $tempo.resources.requests.cpu) (not $tempo.resources.limits.cpu) }}
+{{- fail "Tempo CPU requests and limits are required." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "feedback-hub-monitoring.tempo" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.tempo" .)) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.tempo" .)) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.tempo" .)) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/tempo-configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tempo
+          image: {{ include "feedback-hub-monitoring.image" $tempo.image | quote }}
+          imagePullPolicy: {{ $tempo.image.pullPolicy }}
+          args:
+            - -config.file=/etc/tempo/config.yaml
+          ports:
+            - name: http
+              containerPort: {{ $tempo.httpPort }}
+              protocol: TCP
+            - name: otlp
+              containerPort: {{ $tempo.otlpPort }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml $tempo.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /var/tempo
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "feedback-hub-monitoring.tempo" . }}
+        - name: data
+          emptyDir:
+            sizeLimit: {{ $tempo.storageSizeLimit }}
+        - name: tmp
+          emptyDir: {}

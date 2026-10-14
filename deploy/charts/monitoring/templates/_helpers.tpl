@@ -14,6 +14,10 @@ feedback-hub-loki
 feedback-hub-alloy
 {{- end }}
 
+{{- define "feedback-hub-monitoring.tempo" -}}
+feedback-hub-tempo
+{{- end }}
+
 {{- define "feedback-hub-monitoring.alertmanager" -}}
 feedback-hub-alertmanager
 {{- end }}
