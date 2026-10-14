@@ -1,0 +1,36 @@
+{
+  "uid": "feedback-hub-logs",
+  "title": "API logs",
+  "description": "Structured logs from the Feedback Hub API. Request text, prompts, and credentials are not logged.",
+  "tags": ["feedback-hub", "logs"],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "API logs",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 18 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"feedback-hub-api\"}"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

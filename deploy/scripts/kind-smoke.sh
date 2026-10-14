@@ -116,4 +116,33 @@ grafana() {
 grafana /api/datasources/uid/prometheus/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Prometheus."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-api | grep -q '"title":"API service health"' || { echo "Grafana did not load the API dashboard."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-providers | grep -q '"title":"Model providers"' || { echo "Grafana did not load the provider dashboard."; exit 1; }
+grafana /api/datasources/uid/loki/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Loki."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-logs | grep -q '"title":"API logs"' || { echo "Grafana did not load the log dashboard."; exit 1; }
+
+kubectl --context "$context" exec deploy/feedback-hub-api -- python -c 'import urllib.error,urllib.request
+try:
+    urllib.request.urlopen("http://127.0.0.1:8000/v1/me", timeout=5)
+except urllib.error.HTTPError:
+    pass'
+
+# Loki rejects a log selector as an instant query. A range query returns the
+# stored line with quotes escaped, so match the event name rather than "request".
+selector='%7Bservice_name%3D%22feedback-hub-api%22%7D'
+shipped=""
+last=""
+for _ in $(seq 1 24); do
+  end="$(date +%s)"
+  start="$((end - 900))"
+  path="/api/datasources/proxy/uid/loki/loki/api/v1/query_range?query=${selector}&start=${start}&end=${end}&limit=5"
+  if last="$(grafana "$path")" && grep -q 'request' <<<"$last"; then
+    shipped="yes"
+    break
+  fi
+  sleep 5
+done
+if [[ -z "$shipped" ]]; then
+  printf '%s\n' "${last:0:500}"
+  echo "Loki did not receive an API log."
+  exit 1
+fi
 echo "smoke-ok"

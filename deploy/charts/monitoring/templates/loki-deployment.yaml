@@ -1,0 +1,84 @@
+{{- $loki := .Values.loki }}
+{{- if or (not $loki.resources.requests.cpu) (not $loki.resources.limits.cpu) }}
+{{- fail "Loki CPU requests and limits are required." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "feedback-hub-monitoring.loki" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.loki" .)) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.loki" .)) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.loki" .)) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/loki-configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: loki
+          image: {{ include "feedback-hub-monitoring.image" $loki.image | quote }}
+          imagePullPolicy: {{ $loki.image.pullPolicy }}
+          args:
+            - -config.file=/etc/loki/local-config.yaml
+          ports:
+            - name: http
+              containerPort: {{ $loki.port }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml $loki.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki/local-config.yaml
+              subPath: local-config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /loki
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "feedback-hub-monitoring.loki" . }}
+        - name: data
+          emptyDir:
+            sizeLimit: {{ $loki.storageSizeLimit }}
+        - name: tmp
+          emptyDir: {}
