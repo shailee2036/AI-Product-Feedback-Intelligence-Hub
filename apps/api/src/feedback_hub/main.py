@@ -109,6 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/docs" if docs_enabled else None,
         redoc_url=None,
         openapi_url="/openapi.json" if docs_enabled else None,
+        telemetry={"tracing": False, "metrics": False, "logs": False},
     )
     app.state.settings = resolved
     if settings is not None:

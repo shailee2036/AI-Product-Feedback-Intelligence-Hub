@@ -44,7 +44,15 @@ async def test_request_span_uses_the_route_and_drops_the_query(
     assert live["http.method"] == "GET"
     assert live["http.status_code"] == 200
     assert "error_category" not in live
-    assert "secret-value" not in json.dumps(live)
+    recorded = json.dumps(
+        [
+            {"name": span.name, "attributes": dict(span.attributes or {})}
+            for span in spans.get_finished_spans()
+        ]
+    )
+    assert "secret-value" not in recorded
+    assert "url.path" not in recorded
+    assert {span.name for span in spans.get_finished_spans()} <= {"request", "provider_call"}
     assert missing.status_code == 404
     missed = next(item for item in routes if item["http.route"] == "unmatched")
     assert missed["error_category"] == "client_error"
