@@ -82,7 +82,21 @@ The chart in `deploy/charts/monitoring` runs Prometheus and Grafana from pinned 
 
 Grafana loads the Prometheus and Loki datasources and the dashboards from `deploy/charts/monitoring/dashboards`. **API service health** shows request rate by route and status, the 5xx ratio, p50, p95, and p99 latency, and the API process's CPU, memory, and restarts. **Model providers** shows theme naming, brief writing, and embedding calls: rate, failure ratio, p95 latency, reported prompt and completion tokens, and embedding texts. The API records those as `feedback_hub_provider_requests_total`, `feedback_hub_provider_request_duration_seconds`, `feedback_hub_provider_tokens_total`, and `feedback_hub_embedding_texts_total`. Labels are the operation, provider, model, and result. Request text is never a label, and token counts are only kept for successful calls. Dollar cost is not estimated.
 
-Prometheus evaluates six alert rules. Four cover the API: no pod scraped for 5 minutes, more than 5% 5xx responses for 10 minutes, p95 latency above 2 seconds for 10 minutes, and more than 2 restarts in 30 minutes. Two cover providers: more than 20% of theme naming or brief calls failing, and more than 20% of embedding calls failing, each for 10 minutes. Alerts appear in Prometheus but are not sent anywhere yet.
+Prometheus evaluates six alert rules. Four cover the API: no pod scraped for 5 minutes, more than 5% 5xx responses for 10 minutes, p95 latency above 2 seconds for 10 minutes, and more than 2 restarts in 30 minutes. Two cover providers: more than 20% of theme naming or brief calls failing, and more than 20% of embedding calls failing, each for 10 minutes.
+
+To deliver those alerts by email, create a Secret whose `password` key is the SMTP password, then install with the recipient and SMTP host. The chart does not store the password. Gmail's host is `smtp.gmail.com` and its port is 587. Alertmanager groups alerts for 30 seconds and sends a resolved message when an alert clears. The same alert is not repeated for 4 hours.
+
+```bash
+kubectl -n feedback-hub create secret generic feedback-hub-smtp \
+  --from-file=password=./smtp-password
+helm upgrade --install feedback-hub-monitoring deploy/charts/monitoring -n feedback-hub \
+  --set alertEmail.enabled=true \
+  --set alertEmail.to=you@example.com \
+  --set alertEmail.from=you@example.com \
+  --set alertEmail.user=you@example.com \
+  --set alertEmail.host=smtp.example.com \
+  --set alertEmail.existingSecret=feedback-hub-smtp
+```
 
 Create a Secret named `feedback-hub-grafana` with `admin-user` and `admin-password` before installing. Anonymous access and sign-up are off.
 
