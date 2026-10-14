@@ -38,9 +38,7 @@ async def test_request_span_uses_the_route_and_drops_the_query(
 
     assert response.status_code == 200
     routes = [
-        dict(span.attributes or {})
-        for span in spans.get_finished_spans()
-        if span.name == "request"
+        dict(span.attributes or {}) for span in spans.get_finished_spans() if span.name == "request"
     ]
     live = next(item for item in routes if item["http.route"] == "/health/live")
     assert live["http.method"] == "GET"
