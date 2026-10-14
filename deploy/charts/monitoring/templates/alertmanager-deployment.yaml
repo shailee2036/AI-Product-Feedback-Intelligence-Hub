@@ -1,0 +1,95 @@
+{{- if .Values.alertEmail.enabled }}
+{{- include "feedback-hub-monitoring.alertEmailRequired" . }}
+{{- $email := .Values.alertEmail }}
+{{- if or (not $email.resources.requests.cpu) (not $email.resources.limits.cpu) }}
+{{- fail "Alertmanager CPU requests and limits are required." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "feedback-hub-monitoring.alertmanager" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/alertmanager-configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alertmanager
+          image: {{ include "feedback-hub-monitoring.image" $email.image | quote }}
+          imagePullPolicy: {{ $email.image.pullPolicy }}
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=0.0.0.0:{{ $email.port }}
+            - --cluster.listen-address=
+          ports:
+            - name: http
+              containerPort: {{ $email.port }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml $email.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+              readOnly: true
+            - name: smtp
+              mountPath: /etc/alertmanager/smtp
+              readOnly: true
+            - name: data
+              mountPath: /alertmanager
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "feedback-hub-monitoring.alertmanager" . }}
+        - name: smtp
+          secret:
+            secretName: {{ $email.existingSecret | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ $email.passwordKey | quote }}
+                path: password
+        - name: data
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}
