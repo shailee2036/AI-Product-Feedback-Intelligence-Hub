@@ -42,6 +42,10 @@ spec:
             - name: FEEDBACK_HUB_LITELLM_BASE_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.otelEndpoint }}
+            - name: FEEDBACK_HUB_OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ .Values.existingSecret | quote }}

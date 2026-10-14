@@ -27,7 +27,7 @@ from feedback_hub.db.engine import Database
 from feedback_hub.feedback.embeddings import EmbeddingClient, build_gemini_client
 from feedback_hub.feedback.groq import GroqClient, build_groq_client, generation_target
 from feedback_hub.github.client import GitHubClient, build_http_client
-from feedback_hub.observability import configure_logging, metrics_middleware
+from feedback_hub.observability import configure_logging, configure_tracing, metrics_middleware
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging()
     resolved = settings or get_settings()
+    configure_tracing(resolved.otel_exporter_otlp_endpoint)
     docs_enabled = resolved.environment in {"local", "test"}
     app = FastAPI(
         title="Feedback Intelligence Hub API",

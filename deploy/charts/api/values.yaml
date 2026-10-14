@@ -19,6 +19,9 @@ existingSecret: feedback-hub-api
 # FEEDBACK_HUB_LITELLM_API_KEY (the proxy master key) to the Secret above.
 litellmBaseUrl: ""
 
+# OTLP HTTP collector. Empty disables export. Example: http://feedback-hub-tempo:4318
+otelEndpoint: ""
+
 environment: staging
 
 resources:

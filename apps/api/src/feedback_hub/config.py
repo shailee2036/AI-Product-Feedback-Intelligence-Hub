@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     litellm_api_key: SecretStr | None = None
     litellm_model: str = "theme-writer"
 
+    # Base URL of an OTLP HTTP collector, such as http://feedback-hub-tempo:4318.
+    # Empty disables export. Span attributes use the same allowlist as the logs.
+    otel_exporter_otlp_endpoint: str | None = None
+
     csv_max_bytes: int = Field(default=1_000_000, gt=0)
     csv_max_rows: int = Field(default=10_000, gt=0)
     csv_max_feedback_chars: int = Field(default=10_000, gt=0)
