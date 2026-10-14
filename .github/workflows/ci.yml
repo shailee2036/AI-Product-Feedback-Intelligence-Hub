@@ -297,6 +297,27 @@ jobs:
           prometheus_image="$(yq '.prometheus.image.repository + "@" + .prometheus.image.digest' deploy/charts/monitoring/values.yaml)"
           docker run --rm -v "${PWD}/prometheus-config:/etc/prometheus:ro" --entrypoint promtool "$prometheus_image" check config /etc/prometheus/prometheus.yml
           docker run --rm -v "${PWD}/prometheus-config:/etc/prometheus:ro" --entrypoint promtool "$prometheus_image" check rules /etc/prometheus/rules.yml
+          mkdir -p tempo-check
+          helm template feedback-hub-monitoring deploy/charts/monitoring --show-only templates/tempo-configmap.yaml > tempo-configmap.yaml
+          yq '.data["config.yaml"]' tempo-configmap.yaml > tempo-check/config.yaml
+          tempo_image="$(yq '.tempo.image.repository + "@" + .tempo.image.digest' deploy/charts/monitoring/values.yaml)"
+          docker rm -f tempo-check >/dev/null 2>&1 || true
+          docker run -d --name tempo-check -v "${PWD}/tempo-check/config.yaml:/etc/tempo/config.yaml:ro" -p 3200:3200 "$tempo_image" -config.file=/etc/tempo/config.yaml
+          ready=""
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3200/ready >/dev/null; then
+              ready="yes"
+              break
+            fi
+            sleep 1
+          done
+          if [[ -z "$ready" ]]; then
+            docker logs tempo-check || true
+            docker rm -f tempo-check >/dev/null 2>&1 || true
+            echo "Tempo did not become ready."
+            exit 1
+          fi
+          docker rm -f tempo-check >/dev/null 2>&1 || true
           email_sets=(
             --set alertEmail.enabled=true
             --set alertEmail.to=alerts@example.com

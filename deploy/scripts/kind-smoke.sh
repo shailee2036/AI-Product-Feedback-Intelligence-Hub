@@ -38,6 +38,7 @@ if ! helm upgrade --install feedback-hub-api deploy/charts/api \
   --set "image.repository=feedback-hub-api" \
   --set "image.tag=${tag}" \
   --set image.pullPolicy=IfNotPresent \
+  --set otelEndpoint=http://feedback-hub-tempo:4318 \
   --wait \
   --timeout 180s; then
   kubectl --context "$context" describe pods --selector app.kubernetes.io/name=feedback-hub-api || true
@@ -117,6 +118,7 @@ grafana /api/datasources/uid/prometheus/health | grep -q '"status":"OK"' || { ec
 grafana /api/dashboards/uid/feedback-hub-api | grep -q '"title":"API service health"' || { echo "Grafana did not load the API dashboard."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-providers | grep -q '"title":"Model providers"' || { echo "Grafana did not load the provider dashboard."; exit 1; }
 grafana /api/datasources/uid/loki/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Loki."; exit 1; }
+grafana /api/datasources/uid/tempo/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Tempo."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-logs | grep -q '"title":"API logs"' || { echo "Grafana did not load the log dashboard."; exit 1; }
 
 kubectl --context "$context" exec deploy/feedback-hub-api -- python -c 'import urllib.error,urllib.request
@@ -143,6 +145,25 @@ done
 if [[ -z "$shipped" ]]; then
   printf '%s\n' "${last:0:500}"
   echo "Loki did not receive an API log."
+  exit 1
+fi
+
+query='%7B%20resource.service.name%20%3D%20%22feedback-hub-api%22%20%7D'
+traced=""
+last=""
+for _ in $(seq 1 24); do
+  end="$(date +%s)"
+  start="$((end - 900))"
+  path="/api/datasources/proxy/uid/tempo/api/search?q=${query}&start=${start}&end=${end}&limit=5"
+  if last="$(grafana "$path")" && grep -q 'feedback-hub-api' <<<"$last"; then
+    traced="yes"
+    break
+  fi
+  sleep 5
+done
+if [[ -z "$traced" ]]; then
+  printf '%s\n' "${last:0:500}"
+  echo "Tempo did not receive an API trace."
   exit 1
 fi
 echo "smoke-ok"
