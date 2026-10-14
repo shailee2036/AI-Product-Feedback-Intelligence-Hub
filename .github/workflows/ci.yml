@@ -297,6 +297,26 @@ jobs:
           prometheus_image="$(yq '.prometheus.image.repository + "@" + .prometheus.image.digest' deploy/charts/monitoring/values.yaml)"
           docker run --rm -v "${PWD}/prometheus-config:/etc/prometheus:ro" --entrypoint promtool "$prometheus_image" check config /etc/prometheus/prometheus.yml
           docker run --rm -v "${PWD}/prometheus-config:/etc/prometheus:ro" --entrypoint promtool "$prometheus_image" check rules /etc/prometheus/rules.yml
+          email_sets=(
+            --set alertEmail.enabled=true
+            --set alertEmail.to=alerts@example.com
+            --set alertEmail.from=alerts@example.com
+            --set alertEmail.user=alerts@example.com
+            --set alertEmail.host=smtp.example.com
+            --set alertEmail.existingSecret=feedback-hub-smtp
+          )
+          helm template feedback-hub-monitoring deploy/charts/monitoring "${email_sets[@]}" > monitoring-email.yaml
+          kubeconform -strict -summary -kubernetes-version 1.37.0 monitoring-email.yaml
+          conftest test --policy deploy/policy monitoring-email.yaml
+          mkdir -p alertmanager-check/smtp
+          printf 'placeholder' > alertmanager-check/smtp/password
+          helm template feedback-hub-monitoring deploy/charts/monitoring "${email_sets[@]}" --show-only templates/alertmanager-configmap.yaml > alertmanager-configmap.yaml
+          yq '.data["alertmanager.yml"]' alertmanager-configmap.yaml > alertmanager-check/alertmanager.yml
+          alertmanager_image="$(yq '.alertEmail.image.repository + "@" + .alertEmail.image.digest' deploy/charts/monitoring/values.yaml)"
+          docker run --rm \
+            -v "${PWD}/alertmanager-check/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            -v "${PWD}/alertmanager-check/smtp:/etc/alertmanager/smtp:ro" \
+            --entrypoint amtool "$alertmanager_image" check-config /etc/alertmanager/alertmanager.yml
           if conftest test --policy deploy/policy deploy/policy/testdata/rejected.yaml; then
             echo "Policy did not reject the fixture."
             exit 1
