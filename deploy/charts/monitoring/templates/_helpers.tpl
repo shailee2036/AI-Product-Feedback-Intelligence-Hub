@@ -6,6 +6,14 @@ feedback-hub-prometheus
 feedback-hub-grafana
 {{- end }}
 
+{{- define "feedback-hub-monitoring.loki" -}}
+feedback-hub-loki
+{{- end }}
+
+{{- define "feedback-hub-monitoring.alloy" -}}
+feedback-hub-alloy
+{{- end }}
+
 {{/* Call with (list $ "component-name"). */}}
 {{- define "feedback-hub-monitoring.labels" -}}
 {{- $root := index . 0 -}}

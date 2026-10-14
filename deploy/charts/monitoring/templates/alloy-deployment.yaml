@@ -1,0 +1,85 @@
+{{- $alloy := .Values.alloy }}
+{{- if or (not $alloy.resources.requests.cpu) (not $alloy.resources.limits.cpu) }}
+{{- fail "Alloy CPU requests and limits are required." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "feedback-hub-monitoring.alloy" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.alloy" .)) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.alloy" .)) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.alloy" .)) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/alloy-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "feedback-hub-monitoring.alloy" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alloy
+          image: {{ include "feedback-hub-monitoring.image" $alloy.image | quote }}
+          imagePullPolicy: {{ $alloy.image.pullPolicy }}
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/var/lib/alloy/data
+            - --server.http.listen-addr=0.0.0.0:{{ $alloy.port }}
+            - --disable-reporting
+          ports:
+            - name: http
+              containerPort: {{ $alloy.port }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml $alloy.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy/config.alloy
+              subPath: config.alloy
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/alloy
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "feedback-hub-monitoring.alloy" . }}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
