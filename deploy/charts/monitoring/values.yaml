@@ -26,6 +26,7 @@ prometheus:
     errorRatio: 0.05
     latencyP95Seconds: 2
     restartsPer30m: 2
+    providerFailureRatio: 0.2
 
   resources:
     requests:

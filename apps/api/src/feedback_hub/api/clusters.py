@@ -384,7 +384,9 @@ async def name_clusters(
         if themes:
             client: GroqClient = request.app.state.groq
             try:
-                parsed = parse_theme_names(await client.complete(naming_prompt(themes)))
+                parsed = parse_theme_names(
+                    await client.complete(naming_prompt(themes), operation="theme_names")
+                )
             except (GroqError, ValueError) as exc:
                 raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
             to_save = [
@@ -658,6 +660,7 @@ async def write_theme_brief(
                 await client.complete(
                     brief_prompt(cluster.name or "Untitled theme", samples),
                     system=BRIEF_SYSTEM,
+                    operation="brief",
                 ),
                 set(cluster.member_ids),
             )

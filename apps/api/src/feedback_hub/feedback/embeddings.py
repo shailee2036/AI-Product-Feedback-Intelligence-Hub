@@ -1,10 +1,12 @@
 import asyncio
 import math
+import time
 from typing import Any, TypeGuard
 
 import httpx
 
 from feedback_hub.config import Settings
+from feedback_hub.observability import observe_provider_call, provider_result
 
 
 class EmbeddingError(Exception):
@@ -34,6 +36,7 @@ class EmbeddingClient:
         self._http = http
         self._url = f"{base_url.rstrip('/')}/models/{model}:batchEmbedContents"
         self._model = f"models/{model}"
+        self._metric_model = model
         self._dimensions = dimensions
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -50,12 +53,42 @@ class EmbeddingClient:
                 for text in texts
             ]
         }
-        response = await self._post_with_backoff(body)
-        if response.is_error:
-            raise EmbeddingProviderError(response.status_code)
-        return parse_gemini_embeddings(
-            response.json(), count=len(texts), dimensions=self._dimensions
-        )
+        started = time.perf_counter()
+        result = "error"
+        try:
+            try:
+                response = await self._post_with_backoff(body)
+            except httpx.RequestError:
+                result = "timeout"
+                raise
+            if response.is_error:
+                raise EmbeddingProviderError(response.status_code)
+            try:
+                payload = response.json()
+            except ValueError:
+                result = "invalid"
+                raise EmbeddingError("Embedding response had an unexpected shape.") from None
+            vectors = parse_gemini_embeddings(
+                payload, count=len(texts), dimensions=self._dimensions
+            )
+            result = "ok"
+            return vectors
+        except EmbeddingProviderError as exc:
+            result = provider_result(exc.status_code)
+            raise
+        except EmbeddingError:
+            if result == "error":
+                result = "invalid"
+            raise
+        finally:
+            observe_provider_call(
+                operation="embedding",
+                provider="gemini",
+                model=self._metric_model,
+                result=result,
+                seconds=time.perf_counter() - started,
+                texts=len(texts),
+            )
 
     async def _post_with_backoff(self, body: dict[str, Any]) -> httpx.Response:
         delays = iter(_RETRY_DELAYS_SECONDS)

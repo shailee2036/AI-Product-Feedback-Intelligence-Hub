@@ -106,7 +106,7 @@ done
 [[ -n "$scraped" ]] || { echo "Prometheus did not scrape the API."; exit 1; }
 
 rules="$(prometheus /api/v1/rules)"
-[[ "$(grep -o '"health":"ok"' <<<"$rules" | wc -l)" -eq 4 ]] || { echo "Prometheus did not load the alert rules."; exit 1; }
+[[ "$(grep -o '"health":"ok"' <<<"$rules" | wc -l)" -eq 6 ]] || { echo "Prometheus did not load the alert rules."; exit 1; }
 
 grafana() {
   kubectl --context "$context" exec deploy/feedback-hub-grafana -- sh -c \
@@ -114,5 +114,6 @@ grafana() {
 }
 
 grafana /api/datasources/uid/prometheus/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Prometheus."; exit 1; }
-grafana /api/dashboards/uid/feedback-hub-api | grep -q '"title":"API service health"' || { echo "Grafana did not load the dashboard."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-api | grep -q '"title":"API service health"' || { echo "Grafana did not load the API dashboard."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-providers | grep -q '"title":"Model providers"' || { echo "Grafana did not load the provider dashboard."; exit 1; }
 echo "smoke-ok"

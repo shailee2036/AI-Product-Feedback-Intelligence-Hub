@@ -47,7 +47,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         groq_http = await stack.enter_async_context(build_groq_client(settings))
         target = generation_target(settings)
-        app.state.groq = GroqClient(groq_http, base_url=target.base_url, model=target.model)
+        app.state.groq = GroqClient(
+            groq_http, base_url=target.base_url, model=target.model, provider=target.provider
+        )
 
         if settings.supabase_url is not None:
             auth_http = await stack.enter_async_context(httpx.AsyncClient(timeout=5.0))
