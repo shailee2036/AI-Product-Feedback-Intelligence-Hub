@@ -125,13 +125,24 @@ try:
 except urllib.error.HTTPError:
     pass'
 
+# Loki rejects a log selector as an instant query. A range query returns the
+# stored line with quotes escaped, so match the event name rather than "request".
+selector='%7Bservice_name%3D%22feedback-hub-api%22%7D'
 shipped=""
+last=""
 for _ in $(seq 1 24); do
-  if grafana '/api/datasources/proxy/uid/loki/loki/api/v1/query?query=%7Bservice_name%3D%22feedback-hub-api%22%7D&limit=5' | grep -q '"request"'; then
+  end="$(date +%s)"
+  start="$((end - 900))"
+  path="/api/datasources/proxy/uid/loki/loki/api/v1/query_range?query=${selector}&start=${start}&end=${end}&limit=5"
+  if last="$(grafana "$path")" && grep -q 'request' <<<"$last"; then
     shipped="yes"
     break
   fi
   sleep 5
 done
-[[ -n "$shipped" ]] || { echo "Loki did not receive an API log."; exit 1; }
+if [[ -z "$shipped" ]]; then
+  printf '%s\n' "${last:0:500}"
+  echo "Loki did not receive an API log."
+  exit 1
+fi
 echo "smoke-ok"
