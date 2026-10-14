@@ -21,6 +21,12 @@ data:
         access: proxy
         url: http://{{ include "feedback-hub-monitoring.loki" . }}:{{ .Values.loki.port }}
         editable: false
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://{{ include "feedback-hub-monitoring.tempo" . }}:{{ .Values.tempo.httpPort }}
+        editable: false
   dashboards.yaml: |
     apiVersion: 1
     providers:
