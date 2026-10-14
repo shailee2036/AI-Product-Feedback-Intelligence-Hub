@@ -1,3 +1,21 @@
+{{- if .Values.alertEmail.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "feedback-hub-monitoring.alertmanager" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.alertEmail.port }}
+      targetPort: http
+      protocol: TCP
+---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:

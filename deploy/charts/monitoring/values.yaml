@@ -74,6 +74,35 @@ alloy:
       cpu: 200m
       memory: 256Mi
 
+# Off unless a recipient and an SMTP secret are supplied at install time.
+# The chart never stores the password.
+alertEmail:
+  enabled: false
+  to: ""
+  from: ""
+  user: ""
+  host: ""
+  smtpPort: 587
+  port: 9093
+  existingSecret: ""
+  passwordKey: password
+
+  image:
+    repository: docker.io/prom/alertmanager
+    tag: v0.34.1
+    digest: sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    pullPolicy: IfNotPresent
+
+  port: 9093
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
 grafana:
   image:
     repository: docker.io/grafana/grafana

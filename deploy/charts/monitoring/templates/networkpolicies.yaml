@@ -35,6 +35,29 @@ spec:
   policyTypes:
     - Ingress
 ---
+{{- if .Values.alertEmail.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "feedback-hub-monitoring.alertmanager" . }}
+  labels:
+    {{- include "feedback-hub-monitoring.labels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.alertmanager" .)) | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "feedback-hub-monitoring.selectorLabels" (list . (include "feedback-hub-monitoring.prometheus" .)) | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.alertEmail.port }}
+---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -14,6 +14,17 @@ feedback-hub-loki
 feedback-hub-alloy
 {{- end }}
 
+{{- define "feedback-hub-monitoring.alertmanager" -}}
+feedback-hub-alertmanager
+{{- end }}
+
+{{- define "feedback-hub-monitoring.alertEmailRequired" -}}
+{{- $email := .Values.alertEmail -}}
+{{- if or (not $email.to) (not $email.from) (not $email.user) (not $email.host) (not $email.smtpPort) (not $email.existingSecret) (not $email.passwordKey) -}}
+{{- fail "alertEmail requires to, from, user, host, smtpPort, existingSecret, and passwordKey." -}}
+{{- end -}}
+{{- end }}
+
 {{/* Call with (list $ "component-name"). */}}
 {{- define "feedback-hub-monitoring.labels" -}}
 {{- $root := index . 0 -}}
