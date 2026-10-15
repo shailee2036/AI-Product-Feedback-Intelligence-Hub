@@ -5,7 +5,7 @@ evidence-backed product themes. Each theme is linked to an existing canonical Gi
 a new issue is drafted only when no suitable one exists, and every GitHub write requires
 explicit human confirmation.
 
-The full blueprint lives in [PROJECT_PLAN.md](PROJECT_PLAN.md).
+The full blueprint lives in [PROJECT_PLAN.md](PROJECT_PLAN.md). Shipped decisions are in [docs/adr](docs/adr). [Data ethics](docs/data-ethics.md), the [threat model](docs/threat-model.md), and [limitations and cost](docs/limitations-and-cost.md) describe this release.
 
 ## Repository layout
 
@@ -16,6 +16,7 @@ The full blueprint lives in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 | `supabase/migrations` | Postgres schema and row-level security policies (source of truth) |
 | `supabase/tests` | SQL row-level security tests and a Supabase auth stub for plain Postgres |
 | `seed-data` | Appwrite seed source and synthetic CSV fixture |
+| `docs` | Architecture decisions, data ethics, threat model, limitations, and cost |
 | `compose.yaml` | Local Postgres (pgvector) and Redis for integration tests |
 | `.github/workflows` | CI, security, and delivery pipelines |
 
