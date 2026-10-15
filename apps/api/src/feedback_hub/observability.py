@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 
 from fastapi import Request, Response
@@ -125,7 +125,7 @@ def _record_span(name: str, attributes: dict[str, str | int]) -> None:
     span.end()
 
 
-def _apply_span(span: trace.Span, attributes: dict[str, object]) -> None:
+def _apply_span(span: trace.Span, attributes: Mapping[str, object]) -> None:
     for key, value in attributes.items():
         allowed = _span_value(key, value)
         if allowed is not None:
