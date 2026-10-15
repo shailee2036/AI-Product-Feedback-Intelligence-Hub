@@ -6,7 +6,7 @@ import respx
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from feedback_hub.feedback.groq import GroqClient
-from feedback_hub.observability import configure_tracing
+from feedback_hub.observability import configure_tracing, trace_operation
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _EXPORTER = InMemorySpanExporter()
@@ -82,3 +82,26 @@ async def test_provider_span_records_the_call_and_not_the_prompt(
     assert event["model"] == "theme-writer"
     assert event["result"] == "ok"
     assert "private feedback text" not in json.dumps(event)
+
+
+def test_import_trace_covers_the_page_and_drops_the_repository(
+    spans: InMemorySpanExporter,
+) -> None:
+    with trace_operation("import") as fields:
+        fields["operation"] = "import"
+        fields["records"] = 4
+        fields["repository"] = "owner/secret-name"
+        with trace_operation("import_page") as page:
+            page["operation"] = "owner/secret-name"
+            page["records"] = 4
+            page["skipped"] = 1
+
+    finished = spans.get_finished_spans()
+    parent = next(span for span in finished if span.name == "import")
+    child = next(span for span in finished if span.name == "import_page")
+    assert dict(parent.attributes or {})["records"] == 4
+    assert dict(parent.attributes or {})["operation"] == "import"
+    assert "repository" not in (parent.attributes or {})
+    assert "owner/secret-name" not in json.dumps(dict(child.attributes or {}))
+    assert child.parent is not None
+    assert child.parent.span_id == parent.context.span_id

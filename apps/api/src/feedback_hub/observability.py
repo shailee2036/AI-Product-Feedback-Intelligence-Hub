@@ -1,15 +1,17 @@
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 
 from fastapi import Request, Response
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 _LOG = logging.getLogger(__name__)
 _LOG_FIELDS = (
@@ -25,6 +27,7 @@ _LOG_FIELDS = (
     "prompt_tokens",
     "completion_tokens",
     "texts",
+    "cost_usd",
     "error_category",
 )
 
@@ -72,7 +75,15 @@ _SPAN_FIELDS = frozenset(
         "model",
         "result",
         "duration_ms",
+        "records",
+        "skipped",
+        "pages",
+        "clusters",
     }
+)
+_SPAN_RESULTS = frozenset({"ok", "error", "cancelled"})
+_SPAN_OPERATIONS = frozenset(
+    {"generation", "theme_names", "brief", "embedding", "import", "clustering", "duplicates"}
 )
 
 
@@ -93,12 +104,50 @@ def configure_tracing(endpoint: str | None = None, *, exporter: SpanExporter | N
     trace.set_tracer_provider(provider)
 
 
+def _span_value(key: str, value: object) -> str | int | None:
+    """Keep counts and known categories. Drop names, ids, and free text."""
+    if key not in _SPAN_FIELDS or isinstance(value, bool):
+        return None
+    if key == "result":
+        return value if isinstance(value, str) and value in _SPAN_RESULTS else None
+    if key == "operation":
+        return value if isinstance(value, str) and value in _SPAN_OPERATIONS else None
+    if key in {"records", "skipped", "pages", "clusters", "duration_ms", "http.status_code"}:
+        return value if isinstance(value, int) else None
+    if isinstance(value, str | int):
+        return value
+    return None
+
+
 def _record_span(name: str, attributes: dict[str, str | int]) -> None:
     span = trace.get_tracer("feedback_hub").start_span(name)
-    for key, value in attributes.items():
-        if key in _SPAN_FIELDS:
-            span.set_attribute(key, value)
+    _apply_span(span, attributes)
     span.end()
+
+
+def _apply_span(span: trace.Span, attributes: dict[str, object]) -> None:
+    for key, value in attributes.items():
+        allowed = _span_value(key, value)
+        if allowed is not None:
+            span.set_attribute(key, allowed)
+
+
+@contextmanager
+def trace_operation(name: str) -> Iterator[dict[str, str | int]]:
+    """One span for a whole import page, embedding run, or analysis. Content stays out."""
+    span = trace.get_tracer("feedback_hub").start_span(name)
+    token = otel_context.attach(trace.set_span_in_context(span))
+    fields: dict[str, str | int] = {}
+    try:
+        yield fields
+        fields.setdefault("result", "ok")
+    except Exception:
+        fields["result"] = "error"
+        raise
+    finally:
+        _apply_span(span, fields)
+        span.end()
+        otel_context.detach(token)
 
 
 def log_event(event: str, **fields: object) -> None:
@@ -145,15 +194,120 @@ CLUSTER_CORRECTIONS = Counter(
     "Human changes to a saved theme.",
     ["action"],
 )
+PROVIDER_COST = Counter(
+    "feedback_hub_provider_cost_usd_total",
+    "Configured token or text rates applied to a successful provider call. Not an invoice.",
+    ["operation", "provider", "model"],
+)
+IMPORT_RECORDS = Counter(
+    "feedback_hub_import_records_total",
+    "Feedback rows an import imported, skipped, or failed.",
+    ["result"],
+)
+IMPORT_DURATION = Histogram(
+    "feedback_hub_import_duration_seconds",
+    "Wall time of one import, from start through the last saved page.",
+    buckets=(0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+IMPORT_QUEUE_AGE = Histogram(
+    "feedback_hub_import_queue_age_seconds",
+    "Time an import waited after it was scheduled before the runner started.",
+    buckets=(0.01, 0.1, 0.5, 1, 5, 30),
+)
+GITHUB_PAGE_DURATION = Histogram(
+    "feedback_hub_github_page_duration_seconds",
+    "Time to fetch one GitHub issues page.",
+    buckets=(0.1, 0.25, 0.5, 1, 2, 5, 10),
+)
+GITHUB_RATE_LIMIT = Gauge(
+    "feedback_hub_github_rate_limit_remaining",
+    "GitHub rate-limit units remaining on the latest response.",
+)
+REDACTIONS = Counter(
+    "feedback_hub_redactions_total",
+    "PII spans replaced before text is stored or sent. The original text is not a label.",
+    ["category"],
+)
+CLUSTER_DURATION = Histogram(
+    "feedback_hub_cluster_duration_seconds",
+    "Wall time to group embedded feedback into themes.",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5),
+)
+CLUSTER_SIZE = Histogram(
+    "feedback_hub_cluster_size",
+    "Members in one saved theme.",
+    buckets=(2, 3, 5, 8, 13, 21, 50),
+)
+CLUSTER_COUNT = Gauge(
+    "feedback_hub_cluster_count",
+    "Themes saved by the latest clustering run.",
+)
+DUPLICATE_RATIO = Gauge(
+    "feedback_hub_duplicate_ratio",
+    "Duplicate edges divided by the number of possible pairs.",
+    ["kind"],
+)
+EMBEDDING_RUN_DURATION = Histogram(
+    "feedback_hub_embedding_run_duration_seconds",
+    "Wall time of one embedding run, including pauses between batches.",
+    buckets=(1, 5, 15, 30, 60, 120, 300),
+)
 
 _OPERATIONS = frozenset({"generation", "theme_names", "brief", "embedding"})
 _RESULTS = frozenset({"ok", "timeout", "rate_limited", "rejected", "error", "invalid"})
 _CORRECTIONS = frozenset({"approved", "dismissed", "merged", "split", "relabeled"})
+_IMPORT_RESULTS = frozenset({"imported", "skipped", "failed"})
+_REDACTION_CATEGORIES = frozenset({"email", "phone", "secret"})
+_DUPLICATE_KINDS = frozenset({"exact", "semantic"})
 
 
 def observe_cluster_correction(action: str) -> None:
     """Count one human theme change. The label is the action, never an id or name."""
     CLUSTER_CORRECTIONS.labels(action if action in _CORRECTIONS else "other").inc()
+
+
+def observe_import_records(result: str, count: int) -> None:
+    if count <= 0:
+        return
+    IMPORT_RECORDS.labels(result if result in _IMPORT_RESULTS else "failed").inc(count)
+
+
+def observe_import_timing(seconds: float, queue_seconds: float) -> None:
+    IMPORT_DURATION.observe(max(seconds, 0))
+    IMPORT_QUEUE_AGE.observe(max(queue_seconds, 0))
+
+
+def observe_github_page(seconds: float) -> None:
+    GITHUB_PAGE_DURATION.observe(max(seconds, 0))
+
+
+def observe_github_quota(remaining: str | None) -> None:
+    if remaining is not None and remaining.isdigit():
+        GITHUB_RATE_LIMIT.set(int(remaining))
+
+
+def observe_redaction(category: str, count: int) -> None:
+    if count > 0 and category in _REDACTION_CATEGORIES:
+        REDACTIONS.labels(category).inc(count)
+
+
+def observe_cluster_run(*, seconds: float, sizes: list[int]) -> None:
+    CLUSTER_DURATION.observe(max(seconds, 0))
+    CLUSTER_COUNT.set(len(sizes))
+    for size in sizes:
+        if size > 0:
+            CLUSTER_SIZE.observe(size)
+
+
+def observe_duplicate_rate(kind: str, *, edges: int, items: int) -> None:
+    if kind not in _DUPLICATE_KINDS:
+        return
+    possible = items * (items - 1) / 2
+    DUPLICATE_RATIO.labels(kind).set(0 if possible <= 0 else edges / possible)
+
+
+def observe_embedding_run(seconds: float) -> None:
+    EMBEDDING_RUN_DURATION.observe(max(seconds, 0))
 
 
 def provider_result(status_code: int) -> str:
@@ -163,6 +317,23 @@ def provider_result(status_code: int) -> str:
     if status_code == 429:
         return "rate_limited"
     return "error"
+
+
+def provider_cost_usd(
+    *,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    texts: int = 0,
+    prompt_usd_per_million: float = 0,
+    completion_usd_per_million: float = 0,
+    embedding_usd_per_million_texts: float = 0,
+) -> float:
+    """Apply configured rates. A rate of zero means this deployment does not price that call."""
+    return (
+        prompt_tokens * prompt_usd_per_million
+        + completion_tokens * completion_usd_per_million
+        + texts * embedding_usd_per_million_texts
+    ) / 1_000_000
 
 
 def observe_provider_call(
@@ -175,6 +346,7 @@ def observe_provider_call(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     texts: int = 0,
+    cost_usd: float = 0,
 ) -> None:
     """Record one provider call. Labels are config values, never request content."""
     operation = operation if operation in _OPERATIONS else "generation"
@@ -187,6 +359,9 @@ def observe_provider_call(
         PROVIDER_TOKENS.labels(operation, provider, model, "completion").inc(completion_tokens)
     if texts > 0:
         EMBEDDING_TEXTS.labels(provider, model, result).inc(texts)
+    priced = cost_usd if result == "ok" and cost_usd > 0 else 0
+    if priced > 0:
+        PROVIDER_COST.labels(operation, provider, model).inc(priced)
     log_event(
         "provider_call",
         operation=operation,
@@ -197,6 +372,7 @@ def observe_provider_call(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         texts=texts,
+        cost_usd=priced or None,
     )
     _record_span(
         "provider_call",

@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -71,7 +72,12 @@ from feedback_hub.feedback.theme_briefs import (
 )
 from feedback_hub.feedback.theme_names import naming_prompt, parse_theme_names, representative_lines
 from feedback_hub.feedback.theme_scores import ScoreFact, score_cluster
-from feedback_hub.observability import observe_cluster_correction
+from feedback_hub.observability import (
+    observe_cluster_correction,
+    observe_cluster_run,
+    observe_duplicate_rate,
+    trace_operation,
+)
 
 router = APIRouter(tags=["clusters"])
 
@@ -245,6 +251,20 @@ async def find_clusters(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ClusterReport:
     """Group embedded feedback into candidate themes. Original rows stay put."""
+    started = time.perf_counter()
+    with trace_operation("analysis_run") as span:
+        span["operation"] = "clustering"
+        report = await _find_clusters(user, database, settings, span, started)
+    return report
+
+
+async def _find_clusters(
+    user: CurrentUser,
+    database: Database,
+    settings: Settings,
+    span: dict[str, str | int],
+    started: float,
+) -> ClusterReport:
     async with database.user_transaction(user) as conn:
         workspace = await ensure_workspace(conn, default_workspace_name(user.email))
         product = await get_product(conn)
@@ -293,22 +313,26 @@ async def find_clusters(
         )
         stored = await load_stored_clusters(conn)
         loaded = await _report_inputs(conn, settings)
-        report = _report(
-            items,
-            stored,
-            threshold=settings.cluster_similarity_threshold,
-            neighbor_count=settings.cluster_neighbor_count,
-            minimum_size=settings.cluster_minimum_size,
-            edges=loaded.edges,
-            embedded=loaded.embedded,
-            briefs=loaded.briefs,
-            history=loaded.history,
-            issues=loaded.issues,
-            pairs=loaded.pairs,
-            duplicate_threshold=settings.duplicate_similarity_threshold,
-            suggestions=loaded.suggestions,
-            drafts=loaded.drafts,
-        )
+        with trace_operation("theme_resolution") as theme:
+            report = _report(
+                items,
+                stored,
+                threshold=settings.cluster_similarity_threshold,
+                neighbor_count=settings.cluster_neighbor_count,
+                minimum_size=settings.cluster_minimum_size,
+                edges=loaded.edges,
+                embedded=loaded.embedded,
+                briefs=loaded.briefs,
+                history=loaded.history,
+                issues=loaded.issues,
+                pairs=loaded.pairs,
+                duplicate_threshold=settings.duplicate_similarity_threshold,
+                suggestions=loaded.suggestions,
+                drafts=loaded.drafts,
+            )
+            theme["operation"] = "clustering"
+            theme["clusters"] = report.cluster_count
+            theme["records"] = report.member_count
         await record_audit_event(
             conn,
             tenant_id=workspace.tenant_id,
@@ -321,6 +345,14 @@ async def find_clusters(
                 "member_count": report.member_count,
             },
         )
+    span["clusters"] = report.cluster_count
+    span["records"] = report.member_count
+    observe_cluster_run(
+        seconds=time.perf_counter() - started,
+        sizes=[len(cluster.member_ids) for cluster in stored],
+    )
+    semantic = sum(score >= settings.duplicate_similarity_threshold for _, _, score in pairs)
+    observe_duplicate_rate("semantic", edges=semantic, items=len(items))
     return report
 
 

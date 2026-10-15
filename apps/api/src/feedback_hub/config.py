@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     groq_api_base_url: str = "https://api.groq.com/openai/v1"
     groq_theme_model: str = "openai/gpt-oss-20b"
     groq_timeout_seconds: float = Field(default=12.0, gt=0)
+    # USD per million units. Zero leaves the spend counter unchanged for that call.
+    prompt_usd_per_million_tokens: float = Field(default=0, ge=0)
+    completion_usd_per_million_tokens: float = Field(default=0, ge=0)
+    embedding_usd_per_million_texts: float = Field(default=0, ge=0)
 
     litellm_base_url: str | None = None
     litellm_api_key: SecretStr | None = None

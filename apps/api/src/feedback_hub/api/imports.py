@@ -1,5 +1,6 @@
 import asyncio
 import re
+import time
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -104,7 +105,8 @@ def _schedule(request: Request, user: AuthenticatedUser, import_id: UUID) -> Non
     database: Database = request.app.state.database
     github: GitHubClient = request.app.state.github
     task = asyncio.create_task(
-        run_import(database, github, user, import_id), name=f"import-{import_id}"
+        run_import(database, github, user, import_id, queued_at=time.perf_counter()),
+        name=f"import-{import_id}",
     )
     tasks: set[asyncio.Task[None]] = request.app.state.import_tasks
     tasks.add(task)

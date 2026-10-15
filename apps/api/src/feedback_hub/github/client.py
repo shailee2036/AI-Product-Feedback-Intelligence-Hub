@@ -6,6 +6,7 @@ import httpx
 from feedback_hub import __version__
 from feedback_hub.config import Settings
 from feedback_hub.github.refs import RepositoryRef
+from feedback_hub.observability import observe_github_quota
 
 
 class GitHubError(Exception):
@@ -112,9 +113,11 @@ class GitHubClient:
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         try:
-            return await self._http.request(method, url, **kwargs)
+            response = await self._http.request(method, url, **kwargs)
         except httpx.RequestError as exc:
             raise GitHubError("GitHub did not respond.") from exc
+        observe_github_quota(response.headers.get("x-ratelimit-remaining"))
+        return response
 
 
 def _has_next_page(response: httpx.Response) -> bool:

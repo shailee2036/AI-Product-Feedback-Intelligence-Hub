@@ -5,7 +5,7 @@ import httpx
 from pydantic import SecretStr
 
 from feedback_hub.config import Settings
-from feedback_hub.observability import observe_provider_call, provider_result
+from feedback_hub.observability import observe_provider_call, provider_cost_usd, provider_result
 
 
 class GroqError(Exception):
@@ -47,12 +47,21 @@ NAMING_SYSTEM = "You name product feedback themes. Reply with JSON only."
 
 class GroqClient:
     def __init__(
-        self, http: httpx.AsyncClient, *, base_url: str, model: str, provider: str = "groq"
+        self,
+        http: httpx.AsyncClient,
+        *,
+        base_url: str,
+        model: str,
+        provider: str = "groq",
+        prompt_usd_per_million: float = 0,
+        completion_usd_per_million: float = 0,
     ) -> None:
         self._http = http
         self._url = f"{base_url.rstrip('/')}/chat/completions"
         self._model = model
         self._provider = provider
+        self._prompt_usd_per_million = prompt_usd_per_million
+        self._completion_usd_per_million = completion_usd_per_million
 
     async def complete(
         self,
@@ -101,14 +110,21 @@ class GroqClient:
                 result = "invalid"
             raise
         finally:
+            recorded = result or "error"
             observe_provider_call(
                 operation=operation,
                 provider=self._provider,
                 model=model_name,
-                result=result or "error",
+                result=recorded,
                 seconds=time.perf_counter() - started,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                cost_usd=provider_cost_usd(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    prompt_usd_per_million=self._prompt_usd_per_million,
+                    completion_usd_per_million=self._completion_usd_per_million,
+                ),
             )
 
 
