@@ -91,3 +91,16 @@ async def test_rate_limit_reset_is_parsed(client: httpx.AsyncClient) -> None:
 
     assert caught.value.reset_at is not None
     assert caught.value.reset_at.year == 2023
+
+
+@respx.mock
+async def test_unreachable_github_hides_the_connection_detail(client: httpx.AsyncClient) -> None:
+    respx.get(GITHUB_REPO_URL).mock(side_effect=httpx.ConnectError("dial tcp secret.example:443"))
+
+    response = await client.post(
+        "/v1/repositories/eligibility", json={"repository": "appwrite/appwrite"}
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "GitHub did not respond."
+    assert "secret.example" not in response.text

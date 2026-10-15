@@ -76,6 +76,16 @@ async def test_unexpected_issue_payloads_are_rejected() -> None:
 
 
 @respx.mock
+async def test_an_unreachable_issue_page_hides_the_connection_detail() -> None:
+    respx.get(ISSUES_URL).mock(side_effect=httpx.ConnectError("dial tcp secret.example:443"))
+    async with httpx.AsyncClient(base_url="https://api.github.com") as http:
+        with pytest.raises(GitHubError, match="did not respond") as caught:
+            await GitHubClient(http).list_issues_page("appwrite", "appwrite", page=1, per_page=100)
+
+    assert "secret.example" not in str(caught.value)
+
+
+@respx.mock
 async def test_issue_page_http_errors_are_reported() -> None:
     respx.get(ISSUES_URL).respond(500)
     async with httpx.AsyncClient(base_url="https://api.github.com") as http:
