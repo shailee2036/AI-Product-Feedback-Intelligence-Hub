@@ -32,6 +32,7 @@ data:
     providers:
       - name: feedback-hub
         folder: Feedback Hub
+        folderUid: feedback-hub
         type: file
         disableDeletion: true
         allowUiUpdates: false
