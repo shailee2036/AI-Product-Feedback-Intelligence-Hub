@@ -1,7 +1,7 @@
 {
   "uid": "feedback-hub-outcomes",
   "title": "Product outcomes",
-  "description": "Human theme corrections, provider failure and latency, and reported tokens. Dollar cost is not estimated. Labels never include theme names or ids.",
+  "description": "Human theme corrections, provider failure and latency, and reported tokens. Configured spend is on the Spend dashboard. Labels never include theme names or ids.",
   "tags": ["feedback-hub", "outcomes"],
   "schemaVersion": 41,
   "version": 1,

@@ -126,6 +126,9 @@ grafana /api/datasources/uid/prometheus/health | grep -q '"status":"OK"' || { ec
 grafana /api/dashboards/uid/feedback-hub-api | grep -q '"title":"API service health"' || { echo "Grafana did not load the API dashboard."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-providers | grep -q '"title":"Model providers"' || { echo "Grafana did not load the provider dashboard."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-outcomes | grep -q '"title":"Product outcomes"' || { echo "Grafana did not load the outcomes dashboard."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-imports | grep -q '"title":"Imports"' || { echo "Grafana did not load the import dashboard."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-analysis | grep -q '"title":"Analysis"' || { echo "Grafana did not load the analysis dashboard."; exit 1; }
+grafana /api/dashboards/uid/feedback-hub-spend | grep -q '"title":"Spend"' || { echo "Grafana did not load the spend dashboard."; exit 1; }
 grafana /api/datasources/uid/loki/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Loki."; exit 1; }
 grafana /api/datasources/uid/tempo/health | grep -q '"status":"OK"' || { echo "Grafana cannot query Tempo."; exit 1; }
 grafana /api/dashboards/uid/feedback-hub-logs | grep -q '"title":"API logs"' || { echo "Grafana did not load the log dashboard."; exit 1; }
