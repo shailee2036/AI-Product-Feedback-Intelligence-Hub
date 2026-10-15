@@ -28,6 +28,7 @@ from feedback_hub.feedback.duplicates import (
     evaluate_links,
     links_for_feedback,
 )
+from feedback_hub.observability import observe_duplicate_rate, trace_operation
 
 router = APIRouter(tags=["duplicates"])
 
@@ -91,6 +92,19 @@ async def find_duplicates(
 
     The comparison is SQL on the stored vectors, so it finishes inside the request.
     """
+    with trace_operation("analysis_run") as span:
+        span["operation"] = "duplicates"
+        report = await _rebuild_duplicates(user, database, settings)
+        span["records"] = report.exact_edges + report.semantic_edges
+        span["clusters"] = report.group_count
+    return report
+
+
+async def _rebuild_duplicates(
+    user: CurrentUser,
+    database: Database,
+    settings: Settings,
+) -> DuplicateReport:
     async with database.user_transaction(user) as conn:
         workspace = await ensure_workspace(conn, default_workspace_name(user.email))
         product = await get_product(conn)
@@ -150,6 +164,8 @@ async def find_duplicates(
                 "group_count": report.group_count,
             },
         )
+    observe_duplicate_rate("exact", edges=report.exact_edges, items=len(items))
+    observe_duplicate_rate("semantic", edges=report.semantic_edges, items=len(items))
     return report
 
 

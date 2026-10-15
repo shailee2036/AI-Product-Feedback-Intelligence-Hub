@@ -6,7 +6,7 @@ from typing import Any, TypeGuard
 import httpx
 
 from feedback_hub.config import Settings
-from feedback_hub.observability import observe_provider_call, provider_result
+from feedback_hub.observability import observe_provider_call, provider_cost_usd, provider_result
 
 
 class EmbeddingError(Exception):
@@ -31,13 +31,20 @@ _RETRY_DELAYS_SECONDS = (15.0, 30.0, 60.0)
 
 class EmbeddingClient:
     def __init__(
-        self, http: httpx.AsyncClient, *, base_url: str, model: str, dimensions: int
+        self,
+        http: httpx.AsyncClient,
+        *,
+        base_url: str,
+        model: str,
+        dimensions: int,
+        usd_per_million_texts: float = 0,
     ) -> None:
         self._http = http
         self._url = f"{base_url.rstrip('/')}/models/{model}:batchEmbedContents"
         self._model = f"models/{model}"
         self._metric_model = model
         self._dimensions = dimensions
+        self._usd_per_million_texts = usd_per_million_texts
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -88,6 +95,10 @@ class EmbeddingClient:
                 result=result,
                 seconds=time.perf_counter() - started,
                 texts=len(texts),
+                cost_usd=provider_cost_usd(
+                    texts=len(texts),
+                    embedding_usd_per_million_texts=self._usd_per_million_texts,
+                ),
             )
 
     async def _post_with_backoff(self, body: dict[str, Any]) -> httpx.Response:

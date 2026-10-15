@@ -44,11 +44,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             base_url=settings.gemini_api_base_url,
             model=settings.gemini_embedding_model,
             dimensions=settings.gemini_embedding_dimensions,
+            usd_per_million_texts=settings.embedding_usd_per_million_texts,
         )
         groq_http = await stack.enter_async_context(build_groq_client(settings))
         target = generation_target(settings)
         app.state.groq = GroqClient(
-            groq_http, base_url=target.base_url, model=target.model, provider=target.provider
+            groq_http,
+            base_url=target.base_url,
+            model=target.model,
+            provider=target.provider,
+            prompt_usd_per_million=settings.prompt_usd_per_million_tokens,
+            completion_usd_per_million=settings.completion_usd_per_million_tokens,
         )
 
         if settings.supabase_url is not None:

@@ -1,4 +1,6 @@
 import asyncio
+import time
+from dataclasses import dataclass
 from uuid import UUID
 
 from feedback_hub.auth import AuthenticatedUser
@@ -14,9 +16,17 @@ from feedback_hub.db.engine import Database
 from feedback_hub.db.workspaces import record_audit_event
 from feedback_hub.feedback.embeddings import EmbeddingClient, EmbeddingError
 from feedback_hub.feedback.normalize import PreparedText, prepare_text, source_text
+from feedback_hub.observability import observe_embedding_run, trace_operation
 
 Pending = tuple[UUID, PreparedText]
 BATCH_PAUSE_SECONDS = 12.0
+
+
+@dataclass(frozen=True, slots=True)
+class _EmbedStats:
+    embedded: int = 0
+    skipped: int = 0
+    failed: bool = False
 
 
 async def run_embeddings(
@@ -33,34 +43,46 @@ async def run_embeddings(
     dimensions: int,
     batch_size: int,
 ) -> None:
-    try:
-        await _run(
-            database,
-            client,
-            user,
-            run_id,
-            tenant_id=tenant_id,
-            product_id=product_id,
-            provider=provider,
-            model=model,
-            model_version=model_version,
-            dimensions=dimensions,
-            batch_size=batch_size,
-        )
-    except Exception as exc:
-        message = (
-            str(exc) if isinstance(exc, EmbeddingError) else "Embedding failed before it finished."
-        )
-        async with database.user_transaction(user) as conn:
-            await mark_embedding_failed(conn, run_id, message)
-            await record_audit_event(
-                conn,
+    started = time.perf_counter()
+    with trace_operation("embedding_batch") as span:
+        span["operation"] = "embedding"
+        try:
+            stats = await _run(
+                database,
+                client,
+                user,
+                run_id,
                 tenant_id=tenant_id,
-                actor_id=user.id,
-                action="embedding.failed",
-                target_type="embedding_run",
-                target_id=str(run_id),
+                product_id=product_id,
+                provider=provider,
+                model=model,
+                model_version=model_version,
+                dimensions=dimensions,
+                batch_size=batch_size,
             )
+        except Exception as exc:
+            span["result"] = "error"
+            observe_embedding_run(time.perf_counter() - started)
+            message = (
+                str(exc)
+                if isinstance(exc, EmbeddingError)
+                else "Embedding failed before it finished."
+            )
+            async with database.user_transaction(user) as conn:
+                await mark_embedding_failed(conn, run_id, message)
+                await record_audit_event(
+                    conn,
+                    tenant_id=tenant_id,
+                    actor_id=user.id,
+                    action="embedding.failed",
+                    target_type="embedding_run",
+                    target_id=str(run_id),
+                )
+            return
+        span["records"] = stats.embedded
+        span["skipped"] = stats.skipped
+        span["result"] = "error" if stats.failed else "ok"
+        observe_embedding_run(time.perf_counter() - started)
 
 
 async def _run(
@@ -76,7 +98,7 @@ async def _run(
     model_version: str,
     dimensions: int,
     batch_size: int,
-) -> None:
+) -> _EmbedStats:
     async with database.user_transaction(user) as conn:
         await mark_embedding_running(conn, run_id)
         items = await load_embeddable_items(
@@ -133,7 +155,7 @@ async def _run(
                     target_type="embedding_run",
                     target_id=str(run_id),
                 )
-            return
+            return _EmbedStats(embedded, skipped, failed=True)
         async with database.user_transaction(user) as conn:
             for (item_id, prepared), vector in zip(batch, vectors, strict=True):
                 await save_embedding(
@@ -175,3 +197,4 @@ async def _run(
             target_id=str(run_id),
             metadata={"embedded_count": embedded, "skipped_count": skipped},
         )
+    return _EmbedStats(embedded, skipped, failed=False)

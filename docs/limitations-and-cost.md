@@ -13,7 +13,7 @@
 
 ## Cost
 
-The app does not calculate a dollar amount. Grafana shows reported tokens and embedding text counts.
+Grafana shows reported tokens and embedding text counts. The Spend dashboard adds USD only when a per-million rate is configured, and that rate defaults to zero. It is not read from a provider invoice.
 
 What staging actually runs:
 

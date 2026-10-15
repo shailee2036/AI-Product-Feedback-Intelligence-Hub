@@ -2,6 +2,8 @@ import hashlib
 import re
 from dataclasses import dataclass
 
+from feedback_hub.observability import observe_redaction
+
 _WHITESPACE = re.compile(r"\s+")
 _MARKDOWN_NOISE = re.compile(r"[*_`>#]+")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
@@ -37,6 +39,9 @@ def prepare_text(raw: str, *, declared_language: str | None = None) -> PreparedT
     text, emails = _EMAIL.subn("[email]", text)
     text, phones = _PHONE.subn("[phone]", text)
     text, secrets = _SECRET.subn("[secret]", text)
+    observe_redaction("email", emails)
+    observe_redaction("phone", phones)
+    observe_redaction("secret", secrets)
     text = _WHITESPACE.sub(" ", _MARKDOWN_NOISE.sub("", text)).strip()
     text = text[:_MAX_CHARS]
     redactions = emails + phones + secrets
