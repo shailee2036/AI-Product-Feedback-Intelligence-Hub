@@ -58,7 +58,7 @@ class GitHubClient:
         self._http = http
 
     async def get_repository(self, ref: RepositoryRef) -> dict[str, Any]:
-        response = await self._http.get(f"/repos/{ref.owner}/{ref.name}")
+        response = await self._request("GET", f"/repos/{ref.owner}/{ref.name}")
         if response.status_code == 404:
             raise RepositoryNotFoundError(ref.full_name)
         if response.status_code in {403, 429} and _is_rate_limited(response):
@@ -81,7 +81,8 @@ class GitHubClient:
     ) -> IssuePage:
         """One page of issues, newest update first. Callers skip pull requests."""
         headers = {"If-None-Match": etag} if etag else None
-        response = await self._http.get(
+        response = await self._request(
+            "GET",
             f"/repos/{owner}/{name}/issues",
             params={
                 "state": "all",
@@ -108,6 +109,12 @@ class GitHubClient:
             has_next=_has_next_page(response),
             not_modified=False,
         )
+
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        try:
+            return await self._http.request(method, url, **kwargs)
+        except httpx.RequestError as exc:
+            raise GitHubError("GitHub did not respond.") from exc
 
 
 def _has_next_page(response: httpx.Response) -> bool:
