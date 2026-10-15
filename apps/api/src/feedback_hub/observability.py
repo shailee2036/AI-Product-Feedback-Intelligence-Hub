@@ -140,9 +140,20 @@ EMBEDDING_TEXTS = Counter(
     "Texts sent to the embedding provider.",
     ["provider", "model", "result"],
 )
+CLUSTER_CORRECTIONS = Counter(
+    "feedback_hub_cluster_corrections_total",
+    "Human changes to a saved theme.",
+    ["action"],
+)
 
 _OPERATIONS = frozenset({"generation", "theme_names", "brief", "embedding"})
 _RESULTS = frozenset({"ok", "timeout", "rate_limited", "rejected", "error", "invalid"})
+_CORRECTIONS = frozenset({"approved", "dismissed", "merged", "split", "relabeled"})
+
+
+def observe_cluster_correction(action: str) -> None:
+    """Count one human theme change. The label is the action, never an id or name."""
+    CLUSTER_CORRECTIONS.labels(action if action in _CORRECTIONS else "other").inc()
 
 
 def provider_result(status_code: int) -> str:

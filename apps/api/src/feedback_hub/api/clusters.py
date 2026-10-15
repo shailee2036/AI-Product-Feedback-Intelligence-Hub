@@ -71,6 +71,7 @@ from feedback_hub.feedback.theme_briefs import (
 )
 from feedback_hub.feedback.theme_names import naming_prompt, parse_theme_names, representative_lines
 from feedback_hub.feedback.theme_scores import ScoreFact, score_cluster
+from feedback_hub.observability import observe_cluster_correction
 
 router = APIRouter(tags=["clusters"])
 
@@ -471,6 +472,7 @@ async def relabel_theme(
             metadata={"product_id": str(product.id)},
         )
         loaded = await _report_inputs(conn, settings)
+    observe_cluster_correction("relabeled")
     return _report(
         items,
         stored,
@@ -515,6 +517,7 @@ async def decide_theme(
             metadata={"product_id": str(product.id)},
         )
         loaded = await _report_inputs(conn, settings)
+    observe_cluster_correction("approved" if next_status == "approved" else "dismissed")
     return _report(
         items,
         stored,
@@ -562,6 +565,7 @@ async def merge_theme(
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
         loaded = await _report_inputs(conn, settings)
+    observe_cluster_correction("merged")
     return _report(
         items,
         stored,
@@ -610,6 +614,7 @@ async def split_theme(
             metadata={"source_id": str(cluster_id), "product_id": str(product.id)},
         )
         loaded = await _report_inputs(conn, settings)
+    observe_cluster_correction("split")
     return _report(
         items,
         stored,

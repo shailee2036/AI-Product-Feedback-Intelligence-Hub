@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from prometheus_client import REGISTRY
 from pydantic import SecretStr
 
 from feedback_hub.auth import SupabaseJwtVerifier
@@ -15,6 +16,7 @@ from feedback_hub.db.products import RegisteredProduct
 from feedback_hub.db.workspaces import Workspace
 from feedback_hub.feedback.groq import GroqError
 from feedback_hub.main import create_app
+from feedback_hub.observability import observe_cluster_correction
 from tests.auth_helpers import SUPABASE_URL, TokenFactory
 
 
@@ -752,3 +754,48 @@ async def test_a_brief_keeps_only_rows_from_an_approved_theme(cluster_api: Any) 
     assert revised["history"][0]["source"] == "generated"
     assert revised["evidence_ids"] == [member_id]
     assert audits[-1]["action"] == "cluster.brief_edited"
+
+
+def _correction_count(action: str) -> float:
+    return (
+        REGISTRY.get_sample_value("feedback_hub_cluster_corrections_total", {"action": action})
+        or 0.0
+    )
+
+
+def test_correction_labels_stay_on_the_action() -> None:
+    other_before = _correction_count("other")
+    approved_before = _correction_count("approved")
+
+    observe_cluster_correction("approved")
+    observe_cluster_correction("People want a progress report.")
+
+    assert _correction_count("approved") == approved_before + 1
+    assert _correction_count("other") == other_before + 1
+    assert _correction_count("People want a progress report.") == 0
+
+
+async def test_approving_a_theme_counts_the_correction_and_not_the_theme_id(
+    cluster_api: Any,
+) -> None:
+    client, tokens, _conn, _holder, _audits, _groq, _settings = cluster_api
+    headers = {"Authorization": f"Bearer {tokens.token(uuid4())}"}
+    created = await client.post("/v1/feedback/clusters", headers=headers)
+    cluster_id = created.json()["clusters"][0]["id"]
+    before = _correction_count("approved")
+
+    missing = await client.post(
+        f"/v1/feedback/clusters/{uuid4()}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+    approved = await client.post(
+        f"/v1/feedback/clusters/{cluster_id}/decision",
+        headers=headers,
+        json={"decision": "approve"},
+    )
+
+    assert missing.status_code == 404
+    assert approved.status_code == 200
+    assert _correction_count("approved") == before + 1
+    assert _correction_count(cluster_id) == 0
