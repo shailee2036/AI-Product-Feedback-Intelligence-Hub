@@ -8,6 +8,18 @@
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" },
+        "hide": 0
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
@@ -15,7 +27,7 @@
       "title": "Theme corrections per second",
       "description": "Approvals, dismissals, merges, splits, and relabels.",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -30,7 +42,7 @@
       "type": "stat",
       "title": "Generation failure ratio",
       "gridPos": { "x": 12, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -59,7 +71,7 @@
       "type": "stat",
       "title": "Generation p95 latency",
       "gridPos": { "x": 16, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -75,7 +87,7 @@
       "title": "Reported tokens per second",
       "description": "Tokens the provider reported. This is not a dollar cost.",
       "gridPos": { "x": 20, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",

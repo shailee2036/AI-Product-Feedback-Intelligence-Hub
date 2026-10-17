@@ -8,13 +8,25 @@
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" },
+        "hide": 0
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
       "type": "timeseries",
       "title": "Imported, skipped, and failed rows",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -29,7 +41,7 @@
       "type": "stat",
       "title": "Import p95",
       "gridPos": { "x": 12, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -43,7 +55,7 @@
       "type": "stat",
       "title": "Queue age p95",
       "gridPos": { "x": 16, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -57,7 +69,7 @@
       "type": "stat",
       "title": "GitHub units remaining",
       "gridPos": { "x": 20, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -71,7 +83,7 @@
       "type": "stat",
       "title": "Page fetch p95",
       "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -86,7 +98,7 @@
       "title": "Redactions per second",
       "description": "Emails, phone numbers, and tokens removed before text is stored or sent.",
       "gridPos": { "x": 8, "y": 8, "w": 16, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",

@@ -11,10 +11,18 @@
   "templating": {
     "list": [
       {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" },
+        "hide": 0
+      },
+      {
         "name": "route",
         "label": "Route",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
         "query": { "query": "label_values(feedback_hub_http_requests_total{job=\"feedback-hub-api\"}, route)", "refId": "route" },
         "definition": "label_values(feedback_hub_http_requests_total{job=\"feedback-hub-api\"}, route)",
         "includeAll": true,
@@ -32,7 +40,7 @@
       "type": "stat",
       "title": "Pods up",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         { "refId": "A", "expr": "sum(up{job=\"feedback-hub-api\"}) or vector(0)" }
       ],
@@ -56,7 +64,7 @@
       "type": "stat",
       "title": "Requests per second",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         { "refId": "A", "expr": "sum(rate(feedback_hub_http_requests_total{job=\"feedback-hub-api\",route=~\"$route\"}[$__rate_interval])) or vector(0)" }
       ],
@@ -68,7 +76,7 @@
       "type": "stat",
       "title": "5xx ratio",
       "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -97,7 +105,7 @@
       "type": "stat",
       "title": "p95 latency",
       "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -126,7 +134,7 @@
       "type": "timeseries",
       "title": "Requests per second by route",
       "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -141,7 +149,7 @@
       "type": "timeseries",
       "title": "Responses per second by status",
       "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -156,7 +164,7 @@
       "type": "timeseries",
       "title": "Latency percentiles",
       "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -181,7 +189,7 @@
       "type": "timeseries",
       "title": "p95 latency by route",
       "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -196,7 +204,7 @@
       "type": "timeseries",
       "title": "CPU cores used per pod",
       "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -211,7 +219,7 @@
       "type": "timeseries",
       "title": "Resident memory per pod",
       "gridPos": { "x": 8, "y": 20, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -226,7 +234,7 @@
       "type": "timeseries",
       "title": "Process restarts (30 minute window)",
       "gridPos": { "x": 16, "y": 20, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",

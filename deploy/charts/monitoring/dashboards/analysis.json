@@ -8,13 +8,25 @@
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" },
+        "hide": 0
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Themes",
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -28,7 +40,7 @@
       "type": "stat",
       "title": "Clustering p95",
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -42,7 +54,7 @@
       "type": "stat",
       "title": "Theme size p95",
       "gridPos": { "x": 8, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -57,7 +69,7 @@
       "title": "Duplicate ratio",
       "description": "Edges divided by the number of possible pairs. Exact comes from a duplicate run. Semantic updates on clustering and on a duplicate run.",
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -72,7 +84,7 @@
       "type": "stat",
       "title": "Embedding run p95",
       "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -86,7 +98,7 @@
       "type": "timeseries",
       "title": "Embedding texts per second",
       "gridPos": { "x": 8, "y": 8, "w": 16, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",

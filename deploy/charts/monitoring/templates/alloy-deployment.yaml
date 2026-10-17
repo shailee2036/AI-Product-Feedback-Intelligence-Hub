@@ -42,6 +42,17 @@ spec:
             - name: http
               containerPort: {{ $alloy.port }}
               protocol: TCP
+            - name: otlp
+              containerPort: {{ $alloy.otlpPort }}
+              protocol: TCP
+          {{- if .Values.grafanaCloud.enabled }}
+          env:
+            - name: GRAFANA_CLOUD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.grafanaCloud.existingSecret | quote }}
+                  key: {{ .Values.grafanaCloud.tokenKey | quote }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

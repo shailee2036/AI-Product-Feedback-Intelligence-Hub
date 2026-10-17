@@ -38,7 +38,7 @@ if ! helm upgrade --install feedback-hub-api deploy/charts/api \
   --set "image.repository=feedback-hub-api" \
   --set "image.tag=${tag}" \
   --set image.pullPolicy=IfNotPresent \
-  --set otelEndpoint=http://feedback-hub-tempo:4318 \
+  --set otelEndpoint=http://feedback-hub-alloy:4318 \
   --wait \
   --timeout 180s; then
   kubectl --context "$context" describe pods --selector app.kubernetes.io/name=feedback-hub-api || true
