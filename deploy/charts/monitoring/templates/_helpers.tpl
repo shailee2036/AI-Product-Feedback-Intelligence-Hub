@@ -29,6 +29,13 @@ feedback-hub-alertmanager
 {{- end -}}
 {{- end }}
 
+{{- define "feedback-hub-monitoring.grafanaCloudRequired" -}}
+{{- $cloud := .Values.grafanaCloud -}}
+{{- if or (not $cloud.existingSecret) (not $cloud.tokenKey) (not $cloud.metrics.url) (not $cloud.metrics.username) (not $cloud.logs.url) (not $cloud.logs.username) (not $cloud.traces.url) (not $cloud.traces.username) -}}
+{{- fail "grafanaCloud requires existingSecret, tokenKey, and a url and username for metrics, logs, and traces." -}}
+{{- end -}}
+{{- end }}
+
 {{/* Call with (list $ "component-name"). */}}
 {{- define "feedback-hub-monitoring.labels" -}}
 {{- $root := index . 0 -}}

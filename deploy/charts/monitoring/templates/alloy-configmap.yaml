@@ -1,3 +1,7 @@
+{{- $cloud := .Values.grafanaCloud }}
+{{- if $cloud.enabled }}
+{{- include "feedback-hub-monitoring.grafanaCloudRequired" . }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -39,7 +43,12 @@ data:
 
     loki.source.kubernetes "pods" {
       targets    = discovery.relabel.pods.output
-      forward_to = [loki.write.default.receiver]
+      forward_to = [
+        loki.write.default.receiver,
+        {{- if $cloud.enabled }}
+        loki.relabel.grafana_cloud.receiver,
+        {{- end }}
+      ]
     }
 
     loki.write "default" {
@@ -47,3 +56,68 @@ data:
         url = "http://{{ include "feedback-hub-monitoring.loki" . }}:{{ .Values.loki.port }}/loki/api/v1/push"
       }
     }
+    {{- if $cloud.enabled }}
+
+    // Only API logs leave the cluster.
+    loki.relabel "grafana_cloud" {
+      forward_to = [loki.write.grafana_cloud.receiver]
+
+      rule {
+        source_labels = ["service_name"]
+        regex         = "feedback-hub-api"
+        action        = "keep"
+      }
+    }
+
+    loki.write "grafana_cloud" {
+      endpoint {
+        url = {{ $cloud.logs.url | quote }}
+
+        basic_auth {
+          username = {{ $cloud.logs.username | quote }}
+          password = sys.env("GRAFANA_CLOUD_TOKEN")
+        }
+      }
+    }
+    {{- end }}
+
+    otelcol.receiver.otlp "default" {
+      http {
+        endpoint = "0.0.0.0:{{ .Values.alloy.otlpPort }}"
+      }
+
+      output {
+        traces = [otelcol.processor.batch.default.input]
+      }
+    }
+
+    otelcol.processor.batch "default" {
+      output {
+        traces = [
+          otelcol.exporter.otlphttp.tempo.input,
+          {{- if $cloud.enabled }}
+          otelcol.exporter.otlphttp.grafana_cloud.input,
+          {{- end }}
+        ]
+      }
+    }
+
+    otelcol.exporter.otlphttp "tempo" {
+      client {
+        endpoint = "http://{{ include "feedback-hub-monitoring.tempo" . }}:{{ .Values.tempo.otlpPort }}"
+      }
+    }
+    {{- if $cloud.enabled }}
+
+    otelcol.auth.basic "grafana_cloud" {
+      username = {{ $cloud.traces.username | quote }}
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+
+    otelcol.exporter.otlphttp "grafana_cloud" {
+      client {
+        endpoint = {{ $cloud.traces.url | quote }}
+        auth     = otelcol.auth.basic.grafana_cloud.handler
+      }
+    }
+    {{- end }}

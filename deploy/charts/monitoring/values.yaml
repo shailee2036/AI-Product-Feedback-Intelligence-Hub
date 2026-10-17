@@ -65,6 +65,9 @@ alloy:
     pullPolicy: IfNotPresent
 
   port: 12345
+  # The API sends OTLP traces here. Alloy forwards them to Tempo and, when enabled,
+  # to Grafana Cloud.
+  otlpPort: 4318
 
   resources:
     requests:
@@ -94,6 +97,26 @@ tempo:
     limits:
       cpu: 500m
       memory: 768Mi
+
+# Off by default. When enabled, Prometheus, Alloy logs, and Alloy traces also send a
+# copy to a Grafana Cloud stack. The in-cluster stack keeps running. The access-policy
+# token lives in a Secret created outside this chart; URLs and usernames are not secret.
+grafanaCloud:
+  enabled: false
+  existingSecret: ""
+  tokenKey: token
+  metrics:
+    # Prometheus remote write, ending in /api/prom/push
+    url: ""
+    username: ""
+  logs:
+    # Loki push, ending in /loki/api/v1/push
+    url: ""
+    username: ""
+  traces:
+    # OTLP gateway, ending in /otlp
+    url: ""
+    username: ""
 
 # Off unless a recipient and an SMTP secret are supplied at install time.
 # The chart never stores the password.

@@ -17,6 +17,10 @@ Issue bodies are fetched when the user runs an import. The repository does not r
 
 Security-labeled issues are skipped. The app does not keep avatars.
 
+## Telemetry
+
+Staging sends API metrics, API logs, and API traces to a Grafana Cloud stack. They carry counts, durations, route templates, operation, provider, and model names. They do not carry issue text, CSV rows, prompts, embeddings, briefs, repository names, user names, or ids. Grafana Labs keeps that copy for the stack's retention period, separately from the in-cluster copy.
+
 ## What a person can see
 
 Theme evidence links back to the GitHub issue or the uploaded row. Generated names and briefs are labeled as generated. A person can rename a theme, approve or dismiss it, merge or split it, and edit a brief. Those edits are the human record.

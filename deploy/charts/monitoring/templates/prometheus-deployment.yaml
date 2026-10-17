@@ -58,6 +58,11 @@ spec:
               readOnly: true
             - name: data
               mountPath: /prometheus
+            {{- if .Values.grafanaCloud.enabled }}
+            - name: grafana-cloud
+              mountPath: /etc/grafana-cloud
+              readOnly: true
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /-/healthy
@@ -75,3 +80,12 @@ spec:
         - name: data
           emptyDir:
             sizeLimit: {{ $p.storageSizeLimit }}
+        {{- if .Values.grafanaCloud.enabled }}
+        - name: grafana-cloud
+          secret:
+            secretName: {{ .Values.grafanaCloud.existingSecret | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.grafanaCloud.tokenKey | quote }}
+                path: token
+        {{- end }}

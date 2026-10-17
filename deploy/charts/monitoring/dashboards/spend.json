@@ -8,6 +8,18 @@
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" },
+        "hide": 0
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
@@ -15,7 +27,7 @@
       "title": "Configured spend",
       "description": "Increase over the selected range. Zero rates do not add to this counter.",
       "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -29,7 +41,7 @@
       "type": "timeseries",
       "title": "Spend per second",
       "gridPos": { "x": 8, "y": 0, "w": 16, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -44,7 +56,7 @@
       "type": "timeseries",
       "title": "Reported tokens per second",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
@@ -59,7 +71,7 @@
       "type": "timeseries",
       "title": "Embedding texts per second",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",

@@ -119,9 +119,38 @@ The same chart runs Loki and Grafana Alloy. Alloy reads pod logs in the release 
 
 Each API request and each provider call is one JSON line. The line has the route template, status, duration, operation, provider, model, and result. It does not include the request path, query string, feedback text, prompts, or credentials. `/metrics` scrapes are not logged.
 
-The same chart runs Tempo. The API exports a span for each request and each provider call when `otelEndpoint` is set to `http://feedback-hub-tempo:4318`. Span attributes use that same allowlist. Tempo keeps blocks in an `emptyDir`, so they are lost when that pod moves to another node. Grafana loads Tempo as a datasource.
+The same chart runs Tempo. The API exports a span for each request and each provider call when `otelEndpoint` is set to `http://feedback-hub-alloy:4318`. Alloy receives the spans over OTLP HTTP and forwards them to Tempo. Span attributes use that same allowlist. Tempo keeps blocks in an `emptyDir`, so they are lost when that pod moves to another node. Grafana loads Tempo as a datasource.
 
-Open http://127.0.0.1:3001 and sign in with the Secret's values. CI lints and validates the chart, runs `promtool` on the rendered Prometheus config and rules, checks that Tempo starts, and the kind smoke test checks that Prometheus scrapes the API, that Grafana loads the dashboards, and that an API log line and an API trace arrive.
+Open http://127.0.0.1:3001 and sign in with the Secret's values. CI lints and validates the chart, runs `promtool` on the rendered Prometheus config and rules, runs `alloy validate` on the rendered Alloy config, checks that Tempo starts, and the kind smoke test checks that Prometheus scrapes the API, that Grafana loads the dashboards, and that an API log line and an API trace arrive.
+
+#### Grafana Cloud copy
+
+The chart can also send a copy to a Grafana Cloud stack while the in-cluster stack keeps running. Prometheus remote-writes series with `job="feedback-hub-api"`, Alloy pushes logs whose `service_name` is `feedback-hub-api`, and Alloy forwards every API span to the stack's OTLP gateway. Nothing from the other pods is sent. Alerts stay on the in-cluster Prometheus and Alertmanager.
+
+Create an access-policy token on grafana.com with `metrics:write`, `logs:write`, and `traces:write`, store it as a Secret, and pass the stack's endpoints and numeric usernames from its details page:
+
+```bash
+kubectl -n feedback-hub create secret generic feedback-hub-grafana-cloud --from-literal=token=<access-policy token>
+helm upgrade feedback-hub-monitoring deploy/charts/monitoring -n feedback-hub --reuse-values \
+  --set alloy.otlpPort=4318 \
+  --set grafanaCloud.enabled=true \
+  --set grafanaCloud.existingSecret=feedback-hub-grafana-cloud \
+  --set grafanaCloud.tokenKey=token \
+  --set grafanaCloud.metrics.url=https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom/push \
+  --set-string grafanaCloud.metrics.username=<prometheus instance id> \
+  --set grafanaCloud.logs.url=https://logs-prod-XXX.grafana.net/loki/api/v1/push \
+  --set-string grafanaCloud.logs.username=<loki user id> \
+  --set grafanaCloud.traces.url=https://otlp-gateway-prod-REGION.grafana.net/otlp \
+  --set-string grafanaCloud.traces.username=<stack instance id>
+```
+
+The dashboards pick their data source from a `datasource` variable, so the same JSON works in both places. Import them into the stack with a service-account token that has the Editor role:
+
+```bash
+GRAFANA_CLOUD_TOKEN=<service account token> python deploy/scripts/grafana_cloud_import.py --url https://<stack>.grafana.net
+```
+
+The script creates the **Feedback Hub** folder (uid `feedback-hub`), sets each dashboard's default data source to the stack's `*-prom` or `*-logs` one, and overwrites earlier copies.
 
 ### API image SBOM and signature
 

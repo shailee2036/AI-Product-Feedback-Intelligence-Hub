@@ -338,6 +338,35 @@ jobs:
             -v "${PWD}/alertmanager-check/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
             -v "${PWD}/alertmanager-check/smtp:/etc/alertmanager/smtp:ro" \
             --entrypoint amtool "$alertmanager_image" check-config /etc/alertmanager/alertmanager.yml
+          cloud_sets=(
+            --set grafanaCloud.enabled=true
+            --set grafanaCloud.existingSecret=feedback-hub-grafana-cloud
+            --set grafanaCloud.metrics.url=https://prometheus.example.com/api/prom/push
+            --set grafanaCloud.metrics.username=1
+            --set grafanaCloud.logs.url=https://logs.example.com/loki/api/v1/push
+            --set grafanaCloud.logs.username=1
+            --set grafanaCloud.traces.url=https://otlp.example.com/otlp
+            --set grafanaCloud.traces.username=1
+          )
+          helm template feedback-hub-monitoring deploy/charts/monitoring "${cloud_sets[@]}" > monitoring-cloud.yaml
+          kubeconform -strict -summary -kubernetes-version 1.37.0 monitoring-cloud.yaml
+          conftest test --policy deploy/policy monitoring-cloud.yaml
+          mkdir -p cloud-check
+          helm template feedback-hub-monitoring deploy/charts/monitoring "${cloud_sets[@]}" --show-only templates/prometheus-configmap.yaml > cloud-prometheus-configmap.yaml
+          yq '.data["prometheus.yml"]' cloud-prometheus-configmap.yaml > cloud-check/prometheus.yml
+          yq '.data["rules.yml"]' cloud-prometheus-configmap.yaml > cloud-check/rules.yml
+          printf 'placeholder' > cloud-check/token
+          docker run --rm \
+            -v "${PWD}/cloud-check:/etc/prometheus:ro" \
+            -v "${PWD}/cloud-check/token:/etc/grafana-cloud/token:ro" \
+            --entrypoint promtool "$prometheus_image" check config /etc/prometheus/prometheus.yml
+          alloy_image="$(yq '.alloy.image.repository + "@" + .alloy.image.digest' deploy/charts/monitoring/values.yaml)"
+          mkdir -p alloy-check
+          helm template feedback-hub-monitoring deploy/charts/monitoring --show-only templates/alloy-configmap.yaml | yq '.data["config.alloy"]' > alloy-check/default.alloy
+          helm template feedback-hub-monitoring deploy/charts/monitoring "${cloud_sets[@]}" --show-only templates/alloy-configmap.yaml | yq '.data["config.alloy"]' > alloy-check/cloud.alloy
+          for config in default cloud; do
+            docker run --rm -v "${PWD}/alloy-check:/cfg:ro" "$alloy_image" validate "/cfg/${config}.alloy"
+          done
           if conftest test --policy deploy/policy deploy/policy/testdata/rejected.yaml; then
             echo "Policy did not reject the fixture."
             exit 1

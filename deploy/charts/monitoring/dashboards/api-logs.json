@@ -8,13 +8,25 @@
   "editable": false,
   "refresh": "30s",
   "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "loki",
+        "current": { "text": "Loki", "value": "loki" },
+        "hide": 0
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
       "type": "logs",
       "title": "API logs",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 18 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "datasource": { "type": "loki", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
