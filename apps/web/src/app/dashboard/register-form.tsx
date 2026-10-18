@@ -2,6 +2,9 @@
 
 import { useActionState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
 import { registerRepository, type RegisterState } from "./actions";
 
 export function RegisterRepositoryForm() {
@@ -16,21 +19,17 @@ export function RegisterRepositoryForm() {
         GitHub repository
       </label>
       <div className="flex gap-3">
-        <input
+        <Input
           id="repository"
           name="repository"
           defaultValue={state.repository ?? ""}
           placeholder="appwrite/appwrite or https://github.com/appwrite/appwrite"
           required
-          className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
-        >
+        <Button type="submit" disabled={pending}>
           {pending ? "Checking…" : "Register"}
-        </button>
+        </Button>
       </div>
       <p className="text-xs text-zinc-500">
         Must be public, owned by a GitHub organization, open-source licensed, with Issues enabled.

@@ -15,12 +15,18 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.5.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.59.0",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "recharts": "^3.10.1",
     "server-only": "^0.0.1",
+    "tailwind-merge": "^3.7.0",
     "zod": "^4.6.6"
   },
   "devDependencies": {

@@ -3,6 +3,8 @@
 import { useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import type { DuplicateReport } from "@/lib/api/types";
 
 import { findDuplicateFeedback, type DuplicateState } from "./actions";
@@ -11,11 +13,11 @@ const VISIBLE_GROUPS = 8;
 
 export function DuplicatePanel({ report }: { report: DuplicateReport }) {
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
+    <Card className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">Duplicates</h2>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{describe(report)}</p>
+          <CardTitle>Duplicates</CardTitle>
+          <CardDescription>{describe(report)}</CardDescription>
         </div>
         <FindButton />
       </div>
@@ -39,7 +41,7 @@ export function DuplicatePanel({ report }: { report: DuplicateReport }) {
           Showing {VISIBLE_GROUPS} of {report.group_count} groups.
         </p>
       ) : null}
-    </section>
+    </Card>
   );
 }
 
@@ -56,13 +58,9 @@ function FindButton() {
   }, [pending, router]);
   return (
     <form action={formAction} className="flex flex-col items-end gap-2">
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
-      >
-        {pending ? "Finding…" : "Find duplicates"}
-      </button>
+        <Button type="submit" disabled={pending}>
+          {pending ? "Finding…" : "Find duplicates"}
+        </Button>
       {state.error ? (
         <p role="alert" className="max-w-xs text-right text-sm text-red-700 dark:text-red-300">
           {state.error}

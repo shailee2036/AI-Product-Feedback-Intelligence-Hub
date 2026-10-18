@@ -1,16 +1,17 @@
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import type { AuditReport } from "@/lib/api/types";
 
 export function AuditPanel({ report }: { report: AuditReport }) {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
+    <Card className="flex flex-col gap-3">
       <div>
-        <h2 className="text-lg font-semibold">Activity</h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <CardTitle>Activity</CardTitle>
+        <CardDescription>
           Recent workspace actions. Entries stay in the record and cannot be edited.
-        </p>
+        </CardDescription>
       </div>
       {report.events.length === 0 ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">No activity yet.</p>
+        <p className="text-sm text-muted">No activity yet.</p>
       ) : (
         <ul className="flex flex-col gap-2 text-sm">
           {report.events.map((event) => (
@@ -23,7 +24,7 @@ export function AuditPanel({ report }: { report: AuditReport }) {
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }
 

@@ -1,69 +1,88 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import type { ClusterReport } from "@/lib/api/types";
 
 import { confirmIssueDraft, decideTheme, editBrief, findThemes, mergeTheme, nameThemes, previewIssueDraft, renameTheme, saveSuggestion, splitTheme, writeBrief, type ClusterState } from "./actions";
 
-const VISIBLE_THEMES = 8;
-const VISIBLE_MEMBERS = 4;
-
 export function ClusterPanel({ report }: { report: ClusterReport }) {
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
+    <Card className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">Themes</h2>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{describe(report)}</p>
+          <CardTitle>Themes</CardTitle>
+          <CardDescription>{describe(report)}</CardDescription>
         </div>
         <div className="flex flex-col items-end gap-2">
           <FindButton />
           <NameButton />
         </div>
       </div>
-      {report.evaluation ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">{formatEvaluation(report)}</p>
-      ) : null}
+      {report.evaluation ? <p className="text-sm text-muted">{formatEvaluation(report)}</p> : null}
       {report.clusters.length > 0 ? (
-        <ul className="flex flex-col gap-4">
-          {report.clusters.slice(0, VISIBLE_THEMES).map((cluster, index) => (
-            <ThemeRow
-              key={cluster.id}
-              cluster={cluster}
-              index={index}
-              others={report.clusters.filter((other) => other.id !== cluster.id)}
-            />
+        <ul className="grid gap-4 md:grid-cols-2">
+          {report.clusters.map((cluster, index) => (
+            <ThemeCard key={cluster.id} cluster={cluster} index={index} />
           ))}
         </ul>
       ) : null}
-      {report.cluster_count > VISIBLE_THEMES ? (
-        <p className="text-xs text-zinc-500">
-          Showing {VISIBLE_THEMES} of {report.cluster_count} themes.
-        </p>
-      ) : null}
-    </section>
+    </Card>
   );
 }
 
-function ThemeRow({
+function ThemeCard({
   cluster,
   index,
-  others,
 }: {
   cluster: ClusterReport["clusters"][number];
   index: number;
-  others: ClusterReport["clusters"];
 }) {
   const label = cluster.name ?? `Theme ${index + 1}`;
   return (
-    <li className="flex flex-col gap-2 text-sm">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="font-medium text-zinc-800 dark:text-zinc-100">{label}</span>
-        <span className="text-zinc-500">
-          {statusLabel(cluster.status)} · {cluster.members.length} rows
-        </span>
+    <li className="rounded-xl border border-border bg-teal-soft/70 p-4 dark:bg-teal-soft">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">{label}</p>
+          <p className="mt-1 text-sm text-muted">
+            {cluster.members.length} rows · score {Math.round(cluster.score.score * 100)}%
+          </p>
+        </div>
+        <Badge tone={statusTone(cluster.status)}>{statusLabel(cluster.status)}</Badge>
+      </div>
+      {cluster.summary ? (
+        <p className="mt-3 line-clamp-3 text-sm text-muted">{cluster.summary}</p>
+      ) : null}
+      <Button asChild variant="secondary" size="sm" className="mt-4">
+        <Link href={`/dashboard/themes/${cluster.id}`}>Open theme</Link>
+      </Button>
+    </li>
+  );
+}
+
+export function ThemeDetail({
+  cluster,
+  others,
+}: {
+  cluster: ClusterReport["clusters"][number];
+  others: ClusterReport["clusters"];
+}) {
+  const label = cluster.name ?? "Untitled theme";
+  return (
+    <Card className="flex flex-col gap-4 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <CardTitle>{label}</CardTitle>
+          <CardDescription>
+            {statusLabel(cluster.status)} · {cluster.members.length} rows
+          </CardDescription>
+        </div>
+        <Badge tone={statusTone(cluster.status)}>{statusLabel(cluster.status)}</Badge>
       </div>
       {cluster.summary ? (
         <span className="text-zinc-600 dark:text-zinc-400">{cluster.summary}</span>
@@ -72,12 +91,11 @@ function ThemeRow({
       <CanonicalIssue cluster={cluster} />
       <NewIssueDraft cluster={cluster} />
       {cluster.brief ? <BriefDetails cluster={cluster} /> : null}
-      <span className="text-zinc-800 dark:text-zinc-200">
-        {cluster.members
-          .slice(0, VISIBLE_MEMBERS)
-          .map((member) => member.title)
-          .join(" · ")}
-      </span>
+      <ul className="flex flex-col gap-1 text-muted">
+        {cluster.members.map((member) => (
+          <li key={member.id}>{member.title}</li>
+        ))}
+      </ul>
       <RenameForm clusterId={cluster.id} name={cluster.name ?? ""} summary={cluster.summary ?? ""} />
       <div className="flex flex-wrap items-start gap-2">
         <DecisionForm clusterId={cluster.id} decision="approve" label="Approve" />
@@ -88,7 +106,7 @@ function ThemeRow({
         {others.length > 0 ? <MergeForm clusterId={cluster.id} others={others} /> : null}
       </div>
       <SplitForm cluster={cluster} />
-    </li>
+    </Card>
   );
 }
 
@@ -390,6 +408,12 @@ function statusLabel(status: ClusterReport["clusters"][number]["status"]): strin
   return "Open";
 }
 
+function statusTone(status: ClusterReport["clusters"][number]["status"]) {
+  if (status === "approved") return "success" as const;
+  if (status === "dismissed") return "neutral" as const;
+  return "accent" as const;
+}
+
 function FindButton() {
   const router = useRouter();
   const [state, formAction, pending] = useActionState<ClusterState, FormData>(findThemes, {});
@@ -400,13 +424,9 @@ function FindButton() {
   }, [pending, router]);
   return (
     <form action={formAction} className="flex flex-col items-end gap-2">
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
-      >
-        {pending ? "Finding…" : "Find themes"}
-      </button>
+        <Button type="submit" disabled={pending}>
+          {pending ? "Finding…" : "Find themes"}
+        </Button>
       {state.error ? (
         <p role="alert" className="max-w-xs text-right text-sm text-red-700 dark:text-red-300">
           {state.error}
@@ -426,13 +446,9 @@ function NameButton() {
   }, [pending, router]);
   return (
     <form action={formAction} className="flex flex-col items-end gap-2">
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
-      >
-        {pending ? "Naming…" : "Name themes"}
-      </button>
+        <Button type="submit" variant="secondary" disabled={pending}>
+          {pending ? "Naming…" : "Name themes"}
+        </Button>
       {state.error ? (
         <p role="alert" className="max-w-xs text-right text-sm text-red-700 dark:text-red-300">
           {state.error}
