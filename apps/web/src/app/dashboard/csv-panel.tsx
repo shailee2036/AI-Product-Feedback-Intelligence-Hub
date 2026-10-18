@@ -2,6 +2,8 @@
 
 import { useActionState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import type { FeedbackPage } from "@/lib/api/types";
 
 import { uploadCsv, type CsvUploadState } from "./actions";
@@ -10,14 +12,14 @@ export function CsvPanel({ feedback }: { feedback: FeedbackPage }) {
   const [state, formAction, pending] = useActionState<CsvUploadState, FormData>(uploadCsv, {});
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
+    <Card className="flex flex-col gap-4">
       <div>
-        <h2 className="text-lg font-semibold">Customer feedback</h2>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <CardTitle>Customer feedback</CardTitle>
+        <CardDescription>
           {feedback.total > 0
             ? `${feedback.total} CSV rows saved for this product.`
             : "Optional. Upload a CSV of feedback about this same product."}
-        </p>
+        </CardDescription>
       </div>
 
       <form action={formAction} className="flex flex-col gap-3">
@@ -33,13 +35,9 @@ export function CsvPanel({ feedback }: { feedback: FeedbackPage }) {
             required
             className="text-sm"
           />
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60"
-          >
+          <Button type="submit" disabled={pending}>
             {pending ? "Checking…" : "Upload"}
-          </button>
+          </Button>
         </div>
         <p className="text-xs text-zinc-500">
           Required columns: feedback_id, created_at, feedback. A file with any invalid row is
@@ -63,7 +61,7 @@ export function CsvPanel({ feedback }: { feedback: FeedbackPage }) {
       </form>
 
       {feedback.items.length ? (
-        <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+        <ul className="divide-y divide-border">
           {feedback.items.map((item) => (
             <li key={item.id} className="py-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -83,6 +81,6 @@ export function CsvPanel({ feedback }: { feedback: FeedbackPage }) {
           ))}
         </ul>
       ) : null}
-    </section>
+    </Card>
   );
 }

@@ -1,186 +1,101 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import Link from "next/link";
 
-import { signOut } from "@/app/login/actions";
-import { getAudit, getClusters, getCurrentEmbeddings, getCurrentImport, getDuplicates, getFeedback, getMe, getProduct } from "@/lib/api/client";
-import { ApiError } from "@/lib/api/errors";
-import type { AuditReport, ClusterReport, DuplicateReport, EmbeddingStatus, FeedbackPage, ImportJob, Me, Product } from "@/lib/api/types";
-import { getVerifiedAccessToken } from "@/lib/supabase/server";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 
-import { AuditPanel } from "./audit-panel";
-import { ClusterPanel } from "./cluster-panel";
-import { CsvPanel } from "./csv-panel";
-import { DuplicatePanel } from "./duplicate-panel";
-import { EmbeddingPanel } from "./embedding-panel";
-import { ImportPanel } from "./import-panel";
-import { RegisterRepositoryForm } from "./register-form";
+import { EmptyProduct } from "./empty-product";
+import { loadWorkspace } from "./load";
+import { OverviewCharts } from "./overview-charts";
+import { WorkspaceError } from "./workspace-error";
 
-export const metadata: Metadata = { title: "Dashboard · Feedback Intelligence Hub" };
+export const metadata: Metadata = { title: "Overview · Feedback Intelligence Hub" };
 
-type Loaded =
-  | {
-      me: Me;
-      product: Product | null;
-      audit: AuditReport;
-      job: ImportJob | null;
-      feedback: FeedbackPage;
-      csvFeedback: FeedbackPage;
-      embeddings: EmbeddingStatus | null;
-      duplicates: DuplicateReport | null;
-      clusters: ClusterReport | null;
-    }
-  | { error: string };
+export default async function OverviewPage() {
+  const data = await loadWorkspace();
+  if ("error" in data) return <WorkspaceError message={data.error} />;
+  if (!data.product) return <EmptyProduct />;
 
-const EMPTY_FEEDBACK: FeedbackPage = { total: 0, items: [] };
-
-async function load(token: string): Promise<Loaded> {
-  try {
-    const me = await getMe(token);
-    const [product, audit] = await Promise.all([getProduct(token), getAudit(token)]);
-    if (!product) {
-      return {
-        me,
-        product,
-        audit,
-        job: null,
-        feedback: EMPTY_FEEDBACK,
-        csvFeedback: EMPTY_FEEDBACK,
-        embeddings: null,
-        duplicates: null,
-        clusters: null,
-      };
-    }
-    const [job, feedback, csvFeedback, embeddings, duplicates, clusters] = await Promise.all([
-      getCurrentImport(token),
-      getFeedback(token, { source: "github_issue", limit: 20 }),
-      getFeedback(token, { source: "csv", limit: 50 }),
-      getCurrentEmbeddings(token),
-      getDuplicates(token),
-      getClusters(token),
-    ]);
-    return { me, product, audit, job, feedback, csvFeedback, embeddings, duplicates, clusters };
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) redirect("/login?next=/dashboard");
-    return { error: error instanceof ApiError ? error.detail.message : "Something went wrong." };
-  }
-}
-
-export default async function DashboardPage() {
-  const token = await getVerifiedAccessToken();
-  if (!token) redirect("/login?next=/dashboard");
-
-  const data = await load(token);
+  const themes = data.clusters?.clusters ?? [];
+  const chartThemes = themes.slice(0, 6).map((theme, index) => ({
+    name: theme.name ?? `Theme ${index + 1}`,
+    score: Math.round(theme.score.score * 100),
+  }));
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-12">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          {"me" in data ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {data.me.workspace.name} · {data.me.email}
-            </p>
-          ) : null}
-        </div>
-        <form action={signOut}>
-          <button type="submit" className="text-sm text-zinc-600 hover:underline dark:text-zinc-400">
-            Sign out
-          </button>
-        </form>
-      </header>
-
-      {"error" in data ? (
-        <section role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          <p className="font-medium">Could not load your workspace.</p>
-          <p className="mt-1">{data.error}</p>
-        </section>
-      ) : data.product ? (
-        <ProductCard
-          product={data.product}
-          job={data.job}
-          feedback={data.feedback}
-          csvFeedback={data.csvFeedback}
-          embeddings={data.embeddings}
-          duplicates={data.duplicates}
-          clusters={data.clusters}
-          audit={data.audit}
-        />
-      ) : (
-        <>
-          <section className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
-            <h2 className="text-lg font-semibold">Register your product</h2>
-            <p className="mt-1 mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-              Each workspace tracks one open-source product through its public GitHub repository.
-            </p>
-            <RegisterRepositoryForm />
-          </section>
-          <AuditPanel report={data.audit} />
-        </>
-      )}
-    </main>
-  );
-}
-
-function ProductCard({
-  product,
-  job,
-  feedback,
-  csvFeedback,
-  embeddings,
-  duplicates,
-  clusters,
-  audit,
-}: {
-  product: Product;
-  job: ImportJob | null;
-  feedback: FeedbackPage;
-  csvFeedback: FeedbackPage;
-  embeddings: EmbeddingStatus | null;
-  duplicates: DuplicateReport | null;
-  clusters: ClusterReport | null;
-  audit: AuditReport;
-}) {
-  const repo = product.repository;
-  const registered = new Date(product.created_at).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-
-  return (
-    <section className="flex flex-col gap-6">
-      <div className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
-        <p className="text-sm font-semibold text-indigo-600">Registered product</p>
-        <h2 className="mt-1 text-xl font-semibold">{product.name}</h2>
+    <div className="flex flex-col gap-8">
+      <div>
+        <p className="text-sm font-medium text-accent">Registered product</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{data.product.name}</h1>
         <a
-          href={repo.html_url}
+          href={data.product.repository.html_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm text-indigo-600 hover:underline"
+          className="text-sm text-accent hover:underline"
         >
-          {repo.full_name}
+          {data.product.repository.full_name}
         </a>
-        <dl className="mt-4 grid grid-cols-3 gap-4 text-sm">
-          <div>
-            <dt className="text-zinc-500">License</dt>
-            <dd className="font-medium">{repo.license_spdx}</dd>
-          </div>
-          <div>
-            <dt className="text-zinc-500">Default branch</dt>
-            <dd className="font-medium">{repo.default_branch}</dd>
-          </div>
-          <div>
-            <dt className="text-zinc-500">Registered</dt>
-            <dd className="font-medium">{registered}</dd>
-          </div>
-        </dl>
       </div>
-      <ImportPanel job={job} feedback={feedback} />
-      <CsvPanel feedback={csvFeedback} />
-      {embeddings ? <EmbeddingPanel status={embeddings} /> : null}
-      {duplicates ? <DuplicatePanel report={duplicates} /> : null}
-      {clusters ? <ClusterPanel report={clusters} /> : null}
-      <AuditPanel report={audit} />
-    </section>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="GitHub issues" value={data.feedback.total} tint="bg-teal-soft" />
+        <Stat label="CSV rows" value={data.csvFeedback.total} tint="bg-coral-soft" />
+        <Stat label="Themes" value={data.clusters?.cluster_count ?? 0} tint="bg-violet-soft" />
+        <Stat
+          label="Approved"
+          value={data.clusters?.approved_count ?? 0}
+          hint={data.job ? `Import ${data.job.status}` : "No import yet"}
+          tint="bg-gold-soft"
+        />
+      </div>
+
+      <Card className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle>Import status</CardTitle>
+          <CardDescription>
+            {data.job
+              ? `${data.job.status}: ${data.job.imported_count} imported, ${data.job.skipped_count} skipped.`
+              : "Import public issues, then embed and group them into themes."}
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {data.job ? <Badge tone={jobTone(data.job.status)}>{data.job.status}</Badge> : null}
+          <Button asChild variant="secondary">
+            <Link href="/dashboard/imports">Open imports</Link>
+          </Button>
+        </div>
+      </Card>
+
+      <OverviewCharts github={data.feedback.total} csv={data.csvFeedback.total} themes={chartThemes} />
+    </div>
   );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+  tint,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  tint: string;
+}) {
+  return (
+    <Card className={tint}>
+      <p className="text-sm text-muted">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
+      {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
+    </Card>
+  );
+}
+
+function jobTone(status: string): "success" | "warning" | "danger" | "accent" | "neutral" {
+  if (status === "succeeded") return "success";
+  if (status === "failed") return "danger";
+  if (status === "running" || status === "queued") return "accent";
+  if (status === "cancelled") return "warning";
+  return "neutral";
 }

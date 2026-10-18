@@ -53,7 +53,7 @@ export async function registerRepository(
     return { ...describeRegistrationError(error), repository };
   }
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   redirect("/dashboard");
 }
 
@@ -73,7 +73,7 @@ export async function uploadCsv(
   if (!token) redirect("/login?next=/dashboard");
   try {
     const result = await uploadFeedbackCsv(token, file);
-    revalidatePath("/dashboard");
+    revalidatePath("/dashboard", "layout");
     return { saved: result.imported_count };
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -98,7 +98,7 @@ export async function nameThemes(): Promise<ClusterState> {
     if (error.status === 404) return { error: "Register a repository before naming themes." };
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -115,7 +115,7 @@ export async function renameTheme(_state: ClusterState, formData: FormData): Pro
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -130,7 +130,7 @@ export async function decideTheme(_state: ClusterState, formData: FormData): Pro
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -145,7 +145,7 @@ export async function mergeTheme(_state: ClusterState, formData: FormData): Prom
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -161,7 +161,7 @@ export async function splitTheme(_state: ClusterState, formData: FormData): Prom
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -201,7 +201,7 @@ export async function confirmIssueDraft(
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -218,7 +218,7 @@ export async function saveSuggestion(
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -232,7 +232,7 @@ export async function writeBrief(_state: ClusterState, formData: FormData): Prom
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -257,7 +257,7 @@ export async function editBrief(_state: ClusterState, formData: FormData): Promi
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -271,7 +271,7 @@ export async function findThemes(): Promise<ClusterState> {
     if (error.status === 404) return { error: "Register a repository before finding themes." };
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -285,7 +285,7 @@ export async function findDuplicateFeedback(): Promise<DuplicateState> {
     if (error.status === 404) return { error: "Register a repository before finding duplicates." };
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -300,7 +300,7 @@ export async function startEmbedding(): Promise<EmbeddingState> {
     if (error.status === 404) return { error: "Register a repository before embedding feedback." };
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -315,7 +315,7 @@ export async function startImport(): Promise<ImportState> {
     if (error.status === 404) return { error: "Register a repository before importing issues." };
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
@@ -333,7 +333,7 @@ export async function cancelImport(
     if (!(error instanceof ApiError)) throw error;
     return { error: error.detail.message };
   }
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard", "layout");
   return {};
 }
 
